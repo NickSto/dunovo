@@ -5,8 +5,10 @@ import sys
 import time
 import argparse
 import subprocess
+import distutils.spawn
 
 TMP_DIRNAME = 'tmp-sscs'
+REQUIRED_COMMANDS = ('mafft', 'em_cons')
 OPT_DEFAULTS = {}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build single-strand consensus sequences from read families. Pipe sorted reads into
@@ -24,6 +26,14 @@ def main(argv):
   parser.add_argument('-v', '--verbose', action='store_true')
 
   args = parser.parse_args(argv[1:])
+
+  # Check for required commands.
+  missing_commands = []
+  for command in REQUIRED_COMMANDS:
+    if not distutils.spawn.find_executable(command):
+      missing_commands.append(command)
+  if missing_commands:
+    fail('Error: Missing commands "'+'", "'.join(missing_commands)+'".')
 
   if args.infile:
     infile = open(args.infile)
