@@ -3,13 +3,14 @@ from __future__ import division
 import os
 import sys
 import time
+import logging
 import argparse
 import subprocess
 import distutils.spawn
 
 TMP_DIRNAME = 'tmp-sscs'
 REQUIRED_COMMANDS = ('mafft', 'em_cons')
-OPT_DEFAULTS = {}
+OPT_DEFAULTS = {'processes':1}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build single-strand consensus sequences from read families. Pipe sorted reads into
 stdin. Prints single-strand consensus sequences to stdout. The sequence names are BARCODE.MATE, e.g.
@@ -23,7 +24,11 @@ def main(argv):
 
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
     help='The input reads, sorted into families.')
-  parser.add_argument('-v', '--verbose', action='store_true')
+  parser.add_argument('-s', '--stats-file',
+    help='Print statistics on the run to this file. Use "-" to print to stderr.')
+  # parser.add_argument('-p', '--processes', type=int,
+  #   help='Number of processes to use. If > 1, launches this many worker subprocesses. '
+  #        'Default: %(default)s.')
 
   args = parser.parse_args(argv[1:])
 
@@ -40,6 +45,15 @@ def main(argv):
   else:
     infile = sys.stdin
 
+  if args.stats_file:
+    if args.stats_file == '-':
+      logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(message)s')
+    else:
+      logging.basicConfig(filename=args.stats_file, filemode='w', level=logging.INFO,
+                          format='%(message)s')
+  else:
+    logging.disable(logging.CRITICAL)
+
   total_time = 0
   total_pairs = 0
   total_runs = 0
@@ -55,7 +69,7 @@ def main(argv):
     # Process the reads we've previously gathered as one family and start a new family.
     if barcode != family_barcode:
       if family:
-        (elapsed, pairs) = process_family(family, family_barcode, verbose=args.verbose)
+        (elapsed, pairs) = process_family(family, family_barcode)
         if pairs > 1:
           total_time += elapsed
           total_pairs += pairs
@@ -66,25 +80,23 @@ def main(argv):
     all_pairs += 1
   # Process the last family.
   if family:
-    (elapsed, pairs) = process_family(family, family_barcode, verbose=args.verbose)
+    (elapsed, pairs) = process_family(family, family_barcode)
     if pairs > 1:
       total_time += elapsed
       total_pairs += pairs
       total_runs += 1
 
   # Final stats on the run.
-  if args.verbose:
-    sys.stderr.write('Processed {} read pairs and {} multi-pair families.\n'.format(all_pairs,
-                                                                                    total_runs))
-    per_pair = total_time / total_pairs
-    per_run = total_time / total_runs
-    sys.stderr.write('{:0.2f}s per pair, {:0.2f}s per run.\n'.format(per_pair, per_run))
+  logging.info('Processed {} read pairs and {} multi-pair families.'.format(all_pairs, total_runs))
+  per_pair = total_time / total_pairs
+  per_run = total_time / total_runs
+  logging.info('{:0.2f}s per pair, {:0.2f}s per run.'.format(per_pair, per_run))
 
   if infile is not sys.stdin:
     infile.close()
 
 
-def process_family(family, barcode, verbose=False):
+def process_family(family, barcode):
   if not os.path.isdir(TMP_DIRNAME):
     os.mkdir(TMP_DIRNAME)
   start = time.time()
@@ -108,8 +120,7 @@ def process_family(family, barcode, verbose=False):
       print consensus
   end = time.time()
   elapsed = end - start
-  if verbose:
-    sys.stderr.write('{} sec for {} read pairs.\n'.format(elapsed, pairs))
+  logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
   return (elapsed, pairs)
 
 
