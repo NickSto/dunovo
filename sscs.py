@@ -4,11 +4,11 @@ import os
 import sys
 import time
 import logging
+import tempfile
 import argparse
 import subprocess
 import distutils.spawn
 
-TMP_DIRNAME = 'tmp-sscs'
 REQUIRED_COMMANDS = ('mafft', 'em_cons')
 OPT_DEFAULTS = {'processes':1}
 USAGE = "%(prog)s [options]"
@@ -97,8 +97,6 @@ def main(argv):
 
 
 def process_family(family, barcode):
-  if not os.path.isdir(TMP_DIRNAME):
-    os.mkdir(TMP_DIRNAME)
   start = time.time()
   pairs = len(family)
   if pairs == 1:
@@ -108,13 +106,13 @@ def process_family(family, barcode):
     print '>'+barcode+'.2'
     print seq2
   else:
-    align_path = make_msa(family, 1)#, base=barcode+'.1')
-    consensus = get_consensus(align_path)#, base=barcode+'.1')
+    align_path = make_msa(family, 1)
+    consensus = get_consensus(align_path)
     if consensus is not None:
       print '>'+barcode+'.1'
       print consensus
-    align_path = make_msa(family, 2)#, base=barcode+'.2')
-    consensus = get_consensus(align_path)#, base=barcode+'.2')
+    align_path = make_msa(family, 2)
+    consensus = get_consensus(align_path)
     if consensus is not None:
       print '>'+barcode+'.2'
       print consensus
@@ -124,11 +122,10 @@ def process_family(family, barcode):
   return (elapsed, pairs)
 
 
-def make_msa(family, mate, base='family'):
+def make_msa(family, mate):
   """Perform a multiple sequence alignment on a set of sequences.
   Uses MAFFT."""
-  family_path = os.path.join(TMP_DIRNAME, base+'.fa')
-  with open(family_path, 'w') as family_file:
+  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as family_file:
     for pair in family:
       if mate == 1:
         name = pair[0]
@@ -138,25 +135,33 @@ def make_msa(family, mate, base='family'):
         seq = pair[4]
       family_file.write('>'+name+'\n')
       family_file.write(seq+'\n')
-  align_path = os.path.join(TMP_DIRNAME, base+'.align.fa')
-  with open(align_path, 'w') as align_file:
+  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as align_file:
     with open(os.devnull, 'w') as devnull:
-      subprocess.call(['mafft', '--nuc', '--quiet', family_path], stdout=align_file, stderr=devnull)
-  return align_path
+      command = ['mafft', '--nuc', '--quiet', family_file.name]
+      subprocess.call(command, stdout=align_file, stderr=devnull)
+  os.remove(family_file.name)
+  return align_file.name
 
 
-def get_consensus(align_path, base='family'):
+def get_consensus(align_path):
   """Make a consensus from a multiple sequence alignment file and return the
   consensus sequence as a string.
   Uses the EMBOSS em_cons command."""
   # Note on em_cons output:
   # It may always be lowercase, but maybe not. It can contain "N", and possibly "-".
-  cons_path = os.path.join(TMP_DIRNAME, base+'.cons.fa')
+  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as cons_file:
+    cons_path = cons_file.name
   with open(os.devnull, 'w') as devnull:
-    subprocess.call(['em_cons', '-sequence', align_path, '-outseq', cons_path], stderr=devnull)
-  if not os.path.exists(cons_path):
+    command = ['em_cons', '-sequence', align_path, '-outseq', cons_path]
+    subprocess.call(command, stderr=devnull)
+  os.remove(align_path)
+  if os.path.getsize(cons_path) == 0:
+    os.remove(cons_path)
     return None
-  return read_fasta(cons_path)
+  else:
+    consensus = read_fasta(cons_path)
+    os.remove(cons_path)
+    return consensus
 
 
 def read_fasta(fasta_path):
