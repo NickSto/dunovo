@@ -2,6 +2,7 @@
 from __future__ import division
 import os
 import sys
+import time
 import argparse
 import subprocess
 
@@ -20,6 +21,7 @@ def main(argv):
 
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
     help='The input reads, sorted into families.')
+  parser.add_argument('-v', '--verbose', action='store_true')
 
   args = parser.parse_args(argv[1:])
 
@@ -28,6 +30,10 @@ def main(argv):
   else:
     infile = sys.stdin
 
+  total_time = 0
+  total_pairs = 0
+  total_runs = 0
+  all_pairs = 0
   family = []
   family_barcode = None
   for line in infile:
@@ -35,39 +41,66 @@ def main(argv):
     if len(fields) != 7:
       continue
     (barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
+    # If the barcode has changed, we're in a new family.
+    # Process the reads we've previously gathered as one family and start a new family.
     if barcode != family_barcode:
       if family:
-        process_family(family, family_barcode)
+        (elapsed, pairs) = process_family(family, family_barcode, verbose=args.verbose)
+        if pairs > 1:
+          total_time += elapsed
+          total_pairs += pairs
+          total_runs += 1
       family_barcode = barcode
       family = []
     family.append((name1, seq1, qual1, name2, seq2, qual2))
+    all_pairs += 1
+  # Process the last family.
   if family:
-    process_family(family, barcode)
+    (elapsed, pairs) = process_family(family, family_barcode, verbose=args.verbose)
+    if pairs > 1:
+      total_time += elapsed
+      total_pairs += pairs
+      total_runs += 1
+
+  # Final stats on the run.
+  if args.verbose:
+    sys.stderr.write('Processed {} read pairs and {} multi-pair families.\n'.format(all_pairs,
+                                                                                    total_runs))
+    per_pair = total_time / total_pairs
+    per_run = total_time / total_runs
+    sys.stderr.write('{:0.2f}s per pair, {:0.2f}s per run.\n'.format(per_pair, per_run))
 
   if infile is not sys.stdin:
     infile.close()
 
 
-def process_family(family, barcode):
+def process_family(family, barcode, verbose=False):
   if not os.path.isdir(TMP_DIRNAME):
     os.mkdir(TMP_DIRNAME)
-  if len(family) == 1:
+  start = time.time()
+  pairs = len(family)
+  if pairs == 1:
     (name1, seq1, qual1, name2, seq2, qual2) = family[0]
     print '>'+barcode+'.1'
     print seq1
     print '>'+barcode+'.2'
     print seq2
-    return
-  align_path = make_msa(family, 1)#, base=barcode+'.1')
-  consensus = get_consensus(align_path)#, base=barcode+'.1')
-  if consensus is not None:
-    print '>'+barcode+'.1'
-    print consensus
-  align_path = make_msa(family, 2)#, base=barcode+'.2')
-  consensus = get_consensus(align_path)#, base=barcode+'.2')
-  if consensus is not None:
-    print '>'+barcode+'.2'
-    print consensus
+  else:
+    align_path = make_msa(family, 1)#, base=barcode+'.1')
+    consensus = get_consensus(align_path)#, base=barcode+'.1')
+    if consensus is not None:
+      print '>'+barcode+'.1'
+      print consensus
+    align_path = make_msa(family, 2)#, base=barcode+'.2')
+    consensus = get_consensus(align_path)#, base=barcode+'.2')
+    if consensus is not None:
+      print '>'+barcode+'.2'
+      print consensus
+  end = time.time()
+  elapsed = end - start
+  if verbose:
+    sys.stderr.write('{} sec for {} read pairs.\n'.format(elapsed, pairs))
+  return (elapsed, pairs)
 
 
 def make_msa(family, mate, base='family'):
@@ -87,7 +120,7 @@ def make_msa(family, mate, base='family'):
   align_path = os.path.join(TMP_DIRNAME, base+'.align.fa')
   with open(align_path, 'w') as align_file:
     with open(os.devnull, 'w') as devnull:
-      subprocess.call(['mafft', family_path], stdout=align_file, stderr=devnull)
+      subprocess.call(['mafft', '--nuc', '--quiet', family_path], stdout=align_file, stderr=devnull)
   return align_path
 
 
