@@ -25,18 +25,20 @@ def main(argv):
     infile = sys.stdin
 
   family = []
-  current_barcode = None
+  family_barcode = None
   for line in infile:
     fields = line.rstrip('\r\n').split('\t')
     if len(fields) != 7:
       continue
     (barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
-    if barcode != current_barcode:
-      current_barcode = barcode
+    if barcode != family_barcode:
       if family:
-        process_family(family, barcode)
+        process_family(family, family_barcode)
+      family_barcode = barcode
       family = []
     family.append((name1, seq1, qual1, name2, seq2, qual2))
+  if family:
+    process_family(family, barcode)
 
   if infile is not sys.stdin:
     infile.close()
