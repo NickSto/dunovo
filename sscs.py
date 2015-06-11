@@ -32,6 +32,7 @@ def main(argv):
       continue
     (barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
     if barcode != current_barcode:
+      current_barcode = barcode
       if family:
         process_family(family, barcode)
       family = []
@@ -44,8 +45,8 @@ def main(argv):
 def process_family(family, barcode):
   print '>'+barcode
   for (name1, seq1, qual1, name2, seq2, qual2) in family:
-    print name1
-    print name2
+    print '\t'+name1
+    print '\t'+name2
 
 
 def fail(message):
