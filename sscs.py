@@ -14,12 +14,38 @@ def main(argv):
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.set_defaults(**OPT_DEFAULTS)
 
-  parser.add_argument('positional1', metavar='dispname',
-    help='')
-  parser.add_argument('-s', '--str',
-    help='default: %(default)s')
+  parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
+    help='The input reads, sorted into families.')
 
   args = parser.parse_args(argv[1:])
+
+  if args.infile:
+    infile = open(args.infile)
+  else:
+    infile = sys.stdin
+
+  family = []
+  current_barcode = None
+  for line in infile:
+    fields = line.rstrip('\r\n').split('\t')
+    if len(fields) != 7:
+      continue
+    (barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
+    if barcode != current_barcode:
+      if family:
+        process_family(family, barcode)
+      family = []
+    family.append((name1, seq1, qual1, name2, seq2, qual2))
+
+  if infile is not sys.stdin:
+    infile.close()
+
+
+def process_family(family, barcode):
+  print '>'+barcode
+  for (name1, seq1, qual1, name2, seq2, qual2) in family:
+    print name1
+    print name2
 
 
 def fail(message):
