@@ -9,7 +9,7 @@ import argparse
 import subprocess
 import distutils.spawn
 
-REQUIRED_COMMANDS = ('mafft', 'em_cons')
+REQUIRED_COMMANDS = ['mafft', 'em_cons']
 OPT_DEFAULTS = {'processes':1}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build single-strand consensus sequences from read families. Pipe sorted reads into
@@ -26,19 +26,25 @@ def main(argv):
     help='The input reads, sorted into families.')
   parser.add_argument('-s', '--stats-file',
     help='Print statistics on the run to this file. Use "-" to print to stderr.')
-  # parser.add_argument('-p', '--processes', type=int,
-  #   help='Number of processes to use. If > 1, launches this many worker subprocesses. '
-  #        'Default: %(default)s.')
+  parser.add_argument('-p', '--processes', type=int,
+    help='Number of processes to use. If > 1, launches this many worker subprocesses. '
+         'Default: %(default)s.')
+  parser.add_argument('-S', '--slurm', action='store_true',
+    help='If -p > 1, prepend sub-commands with "srun -C new".')
 
   args = parser.parse_args(argv[1:])
 
+  assert args.processes > 0
+
   # Check for required commands.
   missing_commands = []
+  if args.slurm:
+    REQUIRED_COMMANDS.append('srun')
   for command in REQUIRED_COMMANDS:
     if not distutils.spawn.find_executable(command):
       missing_commands.append(command)
   if missing_commands:
-    fail('Error: Missing commands "'+'", "'.join(missing_commands)+'".')
+    fail('Error: Missing commands: "'+'", "'.join(missing_commands)+'".')
 
   if args.infile:
     infile = open(args.infile)
@@ -54,10 +60,15 @@ def main(argv):
   else:
     logging.disable(logging.CRITICAL)
 
+  # Open all the worker processes, if we're using more than one.
+  if args.processes > 1:
+    workers = open_workers(args.processes, slurm=args.slurm, stats_file=args.stats_file)
+
   total_time = 0
   total_pairs = 0
   total_runs = 0
   all_pairs = 0
+  all_families = 0
   family = []
   family_barcode = None
   for line in infile:
@@ -69,31 +80,101 @@ def main(argv):
     # Process the reads we've previously gathered as one family and start a new family.
     if barcode != family_barcode:
       if family:
-        (elapsed, pairs) = process_family(family, family_barcode)
-        if pairs > 1:
-          total_time += elapsed
-          total_pairs += pairs
-          total_runs += 1
+        all_families += 1
+        if args.processes == 1:
+          (elapsed, pairs) = process_family(family, family_barcode)
+          if pairs > 1:
+            total_time += elapsed
+            total_pairs += pairs
+            total_runs += 1
+        else:
+          i = all_families % len(workers)
+          worker = workers[i]
+          delegate(worker, family, family_barcode)
       family_barcode = barcode
       family = []
     family.append((name1, seq1, qual1, name2, seq2, qual2))
     all_pairs += 1
   # Process the last family.
   if family:
-    (elapsed, pairs) = process_family(family, family_barcode)
-    if pairs > 1:
-      total_time += elapsed
-      total_pairs += pairs
-      total_runs += 1
+    all_families += 1
+    if args.processes == 1:
+      (elapsed, pairs) = process_family(family, family_barcode)
+      if pairs > 1:
+        total_time += elapsed
+        total_pairs += pairs
+        total_runs += 1
+    else:
+      i = all_families % len(workers)
+      worker = workers[i]
+      delegate(worker, family, family_barcode)
+
+  if args.processes > 1:
+    close_workers(workers)
+    compile_results(workers)
+    # delete_tempfiles(workers)
+
+  if infile is not sys.stdin:
+    infile.close()
+
+  if not args.stats_file:
+    return
 
   # Final stats on the run.
   logging.info('Processed {} read pairs and {} multi-pair families.'.format(all_pairs, total_runs))
   per_pair = total_time / total_pairs
   per_run = total_time / total_runs
-  logging.info('{:0.2f}s per pair, {:0.2f}s per run.'.format(per_pair, per_run))
+  logging.info('{:0.3f}s per pair, {:0.3f}s per run.'.format(per_pair, per_run))
 
-  if infile is not sys.stdin:
-    infile.close()
+
+def open_workers(num_workers, slurm=False, stats_file=None):
+  """Open the required number of worker processes."""
+  script_path = os.path.realpath(sys.argv[0])
+  workers = []
+  for i in range(num_workers):
+    if slurm:
+      command = ['srun', '-C', 'new', 'python', script_path]
+    else:
+      command = ['python', script_path]
+    stats_subfile = None
+    if stats_file:
+      if stats_file == '-':
+        stats_subfile = '-'
+      else:
+        stats_subfile = "{}.{}.log".format(stats_file, i)
+      command.extend(['-s', stats_subfile])
+    outfile = open("tmp-sscs-out.{}.fa".format(i), 'w')
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=outfile)
+    worker = {'proc':process, 'outfile':outfile, 'stats':stats_subfile}
+    workers.append(worker)
+  return workers
+
+
+def delegate(worker, family, barcode):
+  """Send a family to a worker process."""
+  for pair in family:
+    line = barcode+'\t'+'\t'.join(pair)+'\n'
+    worker['proc'].stdin.write(line)
+
+
+def close_workers(workers):
+  for worker in workers:
+    worker['outfile'].close()
+    worker['proc'].stdin.close()
+
+
+def compile_results(workers):
+  for worker in workers:
+    with open(worker['outfile'].name, 'r') as outfile:
+      for line in outfile:
+        sys.stdout.write(line)
+
+
+def delete_tempfiles(workers):
+  for worker in workers:
+    os.remove(worker['outfile'].name)
+    if worker['stats']:
+      os.remove(worker['stats'])
 
 
 def process_family(family, barcode):
