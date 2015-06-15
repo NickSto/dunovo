@@ -80,12 +80,19 @@ initial_declarations=$(declare -F)
 # Do all tests.
 function all {
   sscs
+  sscs1
 }
 
 # sscs.py
 function sscs {
-  echo -e "\sscs.py ::: families.tsv:"
+  echo -e "\tsscs.py ::: families.in.tsv:"
   python "$dirname/../sscs.py" "$dirname/families.in.tsv" | diff -s - "$dirname/families.out.tsv"
+}
+
+# sscs.py
+function sscs1 {
+  echo -e "\tsscs.py -r 1 ::: families.in.tsv:"
+  python "$dirname/../sscs.py" -r 1 "$dirname/families.in.tsv" | diff -s - "$dirname/families-r1.out.tsv"
 }
 
 main "$@"

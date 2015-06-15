@@ -10,7 +10,7 @@ import subprocess
 import distutils.spawn
 
 REQUIRED_COMMANDS = ['mafft', 'em_cons']
-OPT_DEFAULTS = {'processes':1}
+OPT_DEFAULTS = {'min_reads':3, 'processes':1}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build single-strand consensus sequences from read families. Pipe sorted reads into
 stdin. Prints single-strand consensus sequences to stdout. The sequence names are BARCODE.MATE, e.g.
@@ -24,6 +24,9 @@ def main(argv):
 
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
     help='The input reads, sorted into families.')
+  parser.add_argument('-r', '--min-reads', type=int,
+    help='The minimum number of reads required to form a family. Families with fewer reads will '
+         'be skipped. Default: %(default)s.')
   parser.add_argument('-s', '--stats-file',
     help='Print statistics on the run to this file. Use "-" to print to stderr.')
   parser.add_argument('-p', '--processes', type=int,
@@ -79,7 +82,7 @@ def main(argv):
     # If the barcode has changed, we're in a new family.
     # Process the reads we've previously gathered as one family and start a new family.
     if barcode != family_barcode:
-      if family:
+      if len(family) >= args.min_reads:
         all_families += 1
         if args.processes == 1:
           (elapsed, pairs) = process_family(family, family_barcode)
@@ -96,7 +99,7 @@ def main(argv):
     family.append((name1, seq1, qual1, name2, seq2, qual2))
     all_pairs += 1
   # Process the last family.
-  if family:
+  if len(family) >= args.min_reads:
     all_families += 1
     if args.processes == 1:
       (elapsed, pairs) = process_family(family, family_barcode)
@@ -206,6 +209,7 @@ def process_family(family, barcode):
 def make_msa(family, mate):
   """Perform a multiple sequence alignment on a set of sequences.
   Uses MAFFT."""
+  #TODO: Replace with tempfile.mkstemp()?
   with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as family_file:
     for pair in family:
       if mate == 1:
