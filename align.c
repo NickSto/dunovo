@@ -1,8 +1,24 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
+typedef struct Gap {
+  int seq;
+  int coord;
+  int length;
+  struct Gap *next;
+} Gap;
+
+typedef struct Gaps {
+  int length;
+  struct Gap *root;
+  struct Gap *tip;
+} Gaps;
+
 int _test_match(char *seq1, int start1, char *seq2, int start2);
+void add_gap(Gaps *gaps, int seq, int coord, int length);
+Gaps *make_gaps();
 
 // Take an existing alignment and consensus and compute the number of differences between each
 // sequence and the consensus.
@@ -41,6 +57,7 @@ int *get_diffs(char *cons, char *seqs[], int n_seqs) {
 // A naive algorithm for aligning two sequences which are expected to be very similar to each other
 // and already nearly aligned.
 void naive2(char *seq1, char *seq2) {
+  Gaps *gaps = make_gaps();
   int i = 0;
   int j = 0;
   int matches = 0;
@@ -87,14 +104,22 @@ void naive2(char *seq1, char *seq2) {
     } else if (i == new_i && j == new_j) {
       printf("No gap required.\n");
     } else if (gap_seq == 1) {
-      printf("%dbp Gap in seq1 at %d.\n", new_i-i, i);
+      printf("%dbp gap in seq1 at base %d.\n", new_i-i, i);
+      add_gap(gaps, 1, i, new_i-i);
       i = new_i;
     } else if (gap_seq == 2) {
-      printf("%dbp Gap in seq1 at %d.\n", new_j-j, j);
+      printf("%dbp gap in seq2 at base %d.\n", new_j-j, j);
+      add_gap(gaps, 2, j, new_j-j);
       j = new_j;
     }
   i++;
   j++;
+  }
+
+  Gap *gap = gaps->root;
+  while (gap) {
+    printf("%dbp gap in seq%d at base %d.\n", gap->length, gap->seq, gap->coord);
+    gap = gap->next;
   }
 }
 
@@ -119,4 +144,27 @@ int _test_match(char *seq1, int start1, char *seq2, int start2) {
     total++;
   }
   return total > NAIVE_TEST_MIN && (double)matches/total > NAIVE_TEST_THRES;
+}
+
+Gaps *make_gaps() {
+  Gaps *gaps = malloc(sizeof(Gaps));
+  gaps->root = 0;
+  gaps->tip = 0;
+  gaps->length = 0;
+  return gaps;
+}
+
+void add_gap(Gaps *gaps, int seq, int coord, int length) {
+  Gap *gap = malloc(sizeof(Gap));
+  gap->next = 0;
+  gap->seq = seq;
+  gap->coord = coord;
+  gap->length = length;
+  if (gaps->root == 0) {
+    gaps->root = gap;
+  } else {
+    gaps->tip->next = gap;
+  }
+  gaps->tip = gap;
+  gaps->length++;
 }
