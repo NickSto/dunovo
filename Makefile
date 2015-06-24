@@ -1,4 +1,4 @@
 CFLAGS=-Wall
 
 all:
-	gcc -shared -fPIC align.c -o align.so
+	gcc -Wall -shared -fPIC align.c -o align.so
