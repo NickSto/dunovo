@@ -12,7 +12,7 @@ USAGE="Usage: \$ $(basename $0) [options] [test1 [test2]]"
 function main {
 
   do_all=true
-  verbose=''
+  verbose=true
   # Run the requested tests
   for arg in "$@"; do
     # Check for options
@@ -24,6 +24,8 @@ function main {
           echo "Currently valid tests:" >&2
           list_tests >&2
           exit 1;;
+        -q)
+          verbose='';;
         -v)
           verbose=true;;
         *)
