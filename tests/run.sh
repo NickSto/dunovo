@@ -82,19 +82,27 @@ initial_declarations=$(declare -F)
 # Do all tests.
 function all {
   sscs
-  sscs1
+  sscs_r1
+  sscs_p3
 }
 
-# sscs.py
+# sscs.py defaults
 function sscs {
   echo -e "\tsscs.py ::: families.in.tsv:"
   python "$dirname/../sscs.py" "$dirname/families.in.tsv" | diff -s - "$dirname/families.out.tsv"
 }
 
-# sscs.py
-function sscs1 {
+# sscs.py no minimum number of reads per family
+function sscs_r1 {
   echo -e "\tsscs.py -r 1 ::: families.in.tsv:"
   python "$dirname/../sscs.py" -r 1 "$dirname/families.in.tsv" | diff -s - "$dirname/families-r1.out.tsv"
+}
+
+# sscs.py parallelized
+function sscs_p3 {
+  echo -e "\tsscs.py -p 3 ::: families.in.tsv:"
+  python "$dirname/../sscs.py" -p 3 "$dirname/families.in.tsv" | paste - - | sort \
+    | diff -s - <(cat "$dirname/families.out.tsv" | paste - - | sort)
 }
 
 main "$@"

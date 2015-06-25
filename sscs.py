@@ -91,7 +91,7 @@ def main(argv):
   if args.processes > 1:
     close_workers(workers)
     compile_results(workers)
-    # delete_tempfiles(workers)
+    delete_tempfiles(workers)
 
   if infile is not sys.stdin:
     infile.close()
@@ -123,7 +123,7 @@ def open_workers(num_workers, slurm=False, stats_file=None):
       else:
         stats_subfile = "{}.{}.log".format(stats_file, i)
       command.extend(['-s', stats_subfile])
-    outfile = open("tmp-sscs-out.{}.fa".format(i), 'w')
+    outfile = tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.out.part.')
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=outfile)
     worker = {'proc':process, 'outfile':outfile, 'stats':stats_subfile}
     workers.append(worker)
@@ -145,6 +145,7 @@ def close_workers(workers):
 
 def compile_results(workers):
   for worker in workers:
+    worker['proc'].wait()
     with open(worker['outfile'].name, 'r') as outfile:
       for line in outfile:
         sys.stdout.write(line)
