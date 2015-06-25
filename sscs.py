@@ -73,9 +73,9 @@ def main(argv):
   # Open all the worker processes, if we're using more than one.
   workers = None
   if args.processes > 1:
-    workers = open_workers(args.processes, slurm=args.slurm, stats_file=args.stats_file)
+    workers = open_workers(args.processes, args)
 
-  stats = {'time': 0, 'pairs': 0, 'runs': 0, 'families': 0}
+  stats = {'time':0, 'pairs':0, 'runs':0, 'families':0}
   all_pairs = 0
   family = []
   family_barcode = None
@@ -114,27 +114,53 @@ def main(argv):
   logging.info('{:0.3f}s per pair, {:0.3f}s per run.'.format(per_pair, per_run))
 
 
-def open_workers(num_workers, slurm=False, stats_file=None):
+def open_workers(num_workers, args):
   """Open the required number of worker processes."""
   script_path = os.path.realpath(sys.argv[0])
   workers = []
   for i in range(num_workers):
-    if slurm:
+    if args.slurm:
       command = ['srun', '-C', 'new', 'python', script_path]
     else:
       command = ['python', script_path]
+    arguments = gather_args(sys.argv, args.infile)
+    command.extend(arguments)
     stats_subfile = None
-    if stats_file:
-      if stats_file == '-':
+    if args.stats_file:
+      if args.stats_file == '-':
         stats_subfile = '-'
       else:
-        stats_subfile = "{}.{}.log".format(stats_file, i)
+        stats_subfile = "{}.{}.log".format(args.stats_file, i)
       command.extend(['-s', stats_subfile])
     outfile = tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.out.part.')
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=outfile)
     worker = {'proc':process, 'outfile':outfile, 'stats':stats_subfile}
     workers.append(worker)
   return workers
+
+
+def gather_args(args, infile, excluded_flags=('-S', '--slurm'),
+                excluded_args=('-p', '--processes', '-s', '--stats-file')):
+  """Take the full list of command-line arguments and return only the ones which
+  should be passed to worker processes.
+  Excludes the 0th argument (the command name), the input filename ("infile"), all
+  arguments in "excluded_flags", and all arguments in "excluded_args" plus the
+  arguments which follow."""
+  out_args = []
+  skip = True
+  for arg in args:
+    if skip:
+      skip = False
+      continue
+    if arg in excluded_flags:
+      continue
+    if arg in excluded_args:
+      skip = True
+      continue
+    if arg == infile:
+      continue
+    out_args.append(arg)
+  return out_args
 
 
 def delegate(worker, family, barcode):
