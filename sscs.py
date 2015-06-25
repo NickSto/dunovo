@@ -64,14 +64,12 @@ def main(argv):
     logging.disable(logging.CRITICAL)
 
   # Open all the worker processes, if we're using more than one.
+  workers = None
   if args.processes > 1:
     workers = open_workers(args.processes, slurm=args.slurm, stats_file=args.stats_file)
 
-  total_time = 0
-  total_pairs = 0
-  total_runs = 0
+  stats = {'time': 0, 'pairs': 0, 'runs': 0, 'families': 0}
   all_pairs = 0
-  all_families = 0
   family = []
   family_barcode = None
   for line in infile:
@@ -82,35 +80,13 @@ def main(argv):
     # If the barcode has changed, we're in a new family.
     # Process the reads we've previously gathered as one family and start a new family.
     if barcode != family_barcode:
-      if len(family) >= args.min_reads:
-        all_families += 1
-        if args.processes == 1:
-          (elapsed, pairs) = process_family(family, family_barcode)
-          if pairs > 1:
-            total_time += elapsed
-            total_pairs += pairs
-            total_runs += 1
-        else:
-          i = all_families % len(workers)
-          worker = workers[i]
-          delegate(worker, family, family_barcode)
+      process_family(family, family_barcode, args, workers=workers, stats=stats)
       family_barcode = barcode
       family = []
     family.append((name1, seq1, qual1, name2, seq2, qual2))
     all_pairs += 1
   # Process the last family.
-  if len(family) >= args.min_reads:
-    all_families += 1
-    if args.processes == 1:
-      (elapsed, pairs) = process_family(family, family_barcode)
-      if pairs > 1:
-        total_time += elapsed
-        total_pairs += pairs
-        total_runs += 1
-    else:
-      i = all_families % len(workers)
-      worker = workers[i]
-      delegate(worker, family, family_barcode)
+  process_family(family, family_barcode, args, workers=workers, stats=stats)
 
   if args.processes > 1:
     close_workers(workers)
@@ -124,9 +100,10 @@ def main(argv):
     return
 
   # Final stats on the run.
-  logging.info('Processed {} read pairs and {} multi-pair families.'.format(all_pairs, total_runs))
-  per_pair = total_time / total_pairs
-  per_run = total_time / total_runs
+  logging.info('Processed {} read pairs and {} multi-pair families.'
+               .format(all_pairs, stats['runs']))
+  per_pair = stats['time'] / stats['pairs']
+  per_run = stats['time'] / stats['runs']
   logging.info('{:0.3f}s per pair, {:0.3f}s per run.'.format(per_pair, per_run))
 
 
@@ -180,7 +157,18 @@ def delete_tempfiles(workers):
       os.remove(worker['stats'])
 
 
-def process_family(family, barcode):
+def process_family(family, barcode, args, workers=None, stats=None):
+  # Pass if family doesn't contain minimum # of reads.
+  if len(family) < args.min_reads:
+    return
+  stats['families'] += 1
+  # Are we the controller process or a worker?
+  if args.processes > 1:
+    i = stats['families'] % len(workers)
+    worker = workers[i]
+    delegate(worker, family, barcode)
+    return
+  # We're a worker. Actually process the family.
   start = time.time()
   pairs = len(family)
   if pairs == 1:
@@ -203,7 +191,11 @@ def process_family(family, barcode):
   end = time.time()
   elapsed = end - start
   logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
-  return (elapsed, pairs)
+  if stats and pairs > 1:
+    stats['time'] += elapsed
+    stats['pairs'] += pairs
+    stats['runs'] += 1
+  return
 
 
 def make_msa(family, mate):
