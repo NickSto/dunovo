@@ -13,8 +13,8 @@ REQUIRED_COMMANDS = ['mafft', 'em_cons']
 OPT_DEFAULTS = {'min_reads':3, 'processes':1}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build single-strand consensus sequences from read families. Pipe sorted reads into
-stdin. Prints single-strand consensus sequences to stdout. The sequence names are BARCODE.MATE, e.g.
-"CTCAGATAACATACCTTATATGCA.1"."""
+stdin. Prints single-strand consensus sequences in FASTA to stdout. The sequence names are
+BARCODE.MATE, e.g. "CTCAGATAACATACCTTATATGCA.1"."""
 
 
 def main(argv):
@@ -23,10 +23,17 @@ def main(argv):
   parser.set_defaults(**OPT_DEFAULTS)
 
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
-    help='The input reads, sorted into families.')
+    help='The input reads, sorted into families. One line per read pair, 7 tab-delimited columns: '
+         '1. barcode (concatenated alpha+beta), 2. read 1 name, 3. read 1 sequence, 4. read 1 '
+         'quality scores, 5. read 2 name, 6. read 2 sequence, 7. read 2 quality scores.')
   parser.add_argument('-r', '--min-reads', type=int,
     help='The minimum number of reads required to form a family. Families with fewer reads will '
          'be skipped. Default: %(default)s.')
+  parser.add_argument('-m', '--msa', action='store_true',
+    help='Print the multiple sequence alignment as well as the consensus. Instead of printing '
+         'FASTA, it will print a tab-delimited format with 3 columns: 1. barcode, 2. read name, 3. '
+         'aligned read sequence. One line will be the consensus sequence, named "CONSENSUS". One '
+         'alignment and consensus will be printed for each read in the pair.')
   parser.add_argument('-s', '--stats-file',
     help='Print statistics on the run to this file. Use "-" to print to stderr.')
   parser.add_argument('-p', '--processes', type=int,
@@ -174,21 +181,20 @@ def process_family(family, barcode, args, workers=None, stats=None):
   pairs = len(family)
   if pairs == 1:
     (name1, seq1, qual1, name2, seq2, qual2) = family[0]
-    print '>'+barcode+'.1'
-    print seq1
-    print '>'+barcode+'.2'
-    print seq2
-  else:
-    align_path = make_msa(family, 1)
-    consensus = get_consensus(align_path)
-    if consensus is not None:
+    if args.msa:
+      print '{bar}\tCONSENSUS\t{seq}\n{bar}\t{name}\t{seq}'.format(bar=barcode, name=name1, seq=seq1)
+      print '{bar}\tCONSENSUS\t{seq}\n{bar}\t{name}\t{seq}'.format(bar=barcode, name=name2, seq=seq2)
+    else:
       print '>'+barcode+'.1'
-      print consensus
-    align_path = make_msa(family, 2)
-    consensus = get_consensus(align_path)
-    if consensus is not None:
+      print seq1
       print '>'+barcode+'.2'
-      print consensus
+      print seq2
+  else:
+    output = 'consensus'
+    if args.msa:
+      output = 'msa'
+    align_and_cons(family, barcode, 1, output=output)
+    align_and_cons(family, barcode, 2, output=output)
   end = time.time()
   elapsed = end - start
   logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
@@ -197,6 +203,25 @@ def process_family(family, barcode, args, workers=None, stats=None):
     stats['pairs'] += pairs
     stats['runs'] += 1
   return
+
+
+def align_and_cons(family, barcode, mate, output='consensus'):
+  """Do the bioinformatic work: make the multiple sequence alignment and consensus
+  sequence.
+  "mate" is "1" or "2" and determines which read in the pair to process.
+  "output" is "consensus" to print the consensus sequence in FASTA format, or
+    "msa" to print the full multiple sequence alignment in tab-delimited format."""
+  align_path = make_msa(family, mate)
+  if output == 'msa':
+    msa = read_fasta(align_path)
+  consensus = get_consensus(align_path)
+  if output == 'consensus' and consensus is not None:
+    print '>{}.{}'.format(barcode, mate)
+    print consensus
+  elif output == 'msa':
+    print '{}\t{}\t{}'.format(barcode, 'CONSENSUS', consensus)
+    for sequence in msa:
+      print '{}\t{}\t{}'.format(barcode, sequence['name'], sequence['seq'])
 
 
 def make_msa(family, mate):
@@ -237,23 +262,30 @@ def get_consensus(align_path):
     os.remove(cons_path)
     return None
   else:
-    consensus = read_fasta(cons_path)
+    seqs = read_fasta(cons_path)
     os.remove(cons_path)
-    return consensus
+    if seqs:
+      return seqs[0]['seq']
 
 
 def read_fasta(fasta_path):
-  """Read a FASTA file, return the sequence.
-  Uses a very narrow definition of FASTA: That returned by the "em_cons" command."""
+  """Quick and dirty FASTA parser. Return the sequences and their names.
+  Returns a list of sequences. Each is a dict of 'name' and 'seq'."""
+  sequences = []
   seq_lines = []
-  at_header = True
+  seq_name = None
   with open(fasta_path) as fasta_file:
     for line in fasta_file:
-      if at_header and line.startswith('>'):
-        at_header = False
+      if line.startswith('>'):
+        if seq_lines:
+          sequences.append({'name':seq_name, 'seq':''.join(seq_lines)})
+        seq_lines = []
+        seq_name = line.rstrip('\r\n')[1:]
         continue
       seq_lines.append(line.strip())
-  return "".join(seq_lines)
+  if seq_lines:
+    sequences.append({'name':seq_name, 'seq':''.join(seq_lines)})
+  return sequences
 
 
 def fail(message):
