@@ -23,7 +23,7 @@ char *insert_gaps(Gaps *gaps, char *seq, int seq_num);
 
 // Take an existing alignment and consensus and compute the number of differences between each
 // sequence and the consensus.
-int *get_diffs(char *cons, char *seqs[], int n_seqs) {
+int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
   int *diffs = malloc(sizeof(int) * n_seqs);
   int i = 0;
   // Uppercase the consensus.

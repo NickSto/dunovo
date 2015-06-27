@@ -78,22 +78,22 @@ def main(argv):
   stats = {'time':0, 'pairs':0, 'runs':0, 'families':0}
   all_pairs = 0
   family = []
-  family_barcode = None
+  barcode = None
   for line in infile:
     fields = line.rstrip('\r\n').split('\t')
     if len(fields) != 7:
       continue
-    (barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
+    (this_barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
     # If the barcode has changed, we're in a new family.
     # Process the reads we've previously gathered as one family and start a new family.
-    if barcode != family_barcode:
-      process_family(family, family_barcode, args, workers=workers, stats=stats)
-      family_barcode = barcode
+    if this_barcode != barcode:
+      process_family(family, barcode, args, workers=workers, stats=stats)
+      barcode = this_barcode
       family = []
     family.append((name1, seq1, qual1, name2, seq2, qual2))
     all_pairs += 1
   # Process the last family.
-  process_family(family, family_barcode, args, workers=workers, stats=stats)
+  process_family(family, barcode, args, workers=workers, stats=stats)
 
   if args.processes > 1:
     close_workers(workers)
