@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 typedef struct Gap {
   int seq;
@@ -32,16 +33,52 @@ int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
     i++;
   }
   int j;
-  char *seq;
   // Loop through the sequences in the alignment.
   for (i = 0; i < n_seqs; i++) {
     j = 0;
-    seq = seqs[i];
     diffs[i] = 0;
     // Compare each base of the sequence to the consensus.
-    while (seq[j] != 0 && cons[j] != 0) {
-      if (toupper(seq[j]) != cons[j]) {
+    while (seqs[i][j] != 0 && cons[j] != 0) {
+      if (toupper(seqs[i][j]) != cons[j]) {
         diffs[i]++;
+      }
+      j++;
+    }
+  }
+  return diffs;
+}
+
+// Take an existing alignment and consensus and compute the number of differences between each
+// sequence and the consensus. Break each sequence into bins and tally the differences in each bin.
+int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len) {
+  int bins = 10;
+  int bin_size = (int)round((float)seq_len/bins);
+  // Initialize the diffs 2d array.
+  int **diffs = malloc(n_seqs * sizeof(int*));
+  int i, j;
+  for (i = 0; i < n_seqs; i++) {
+    diffs[i] = malloc(bins * sizeof(int));
+    for (j = 0; j < bins; j++) {
+      diffs[i][j] = 0;
+    }
+  }
+  // Uppercase the consensus.
+  while (cons[i] != 0) {
+    cons[i] = toupper(cons[i]);
+    i++;
+  }
+  int bin;
+  // Loop through the sequences in the alignment.
+  for (i = 0; i < n_seqs; i++) {
+    j = 0;
+    // Compare each base of the sequence to the consensus.
+    while (seqs[i][j] != 0 && cons[j] != 0) {
+      bin = j/bin_size;
+      if (bin >= bins) {
+        break;
+      }
+      if (toupper(seqs[i][j]) != cons[j]) {
+        diffs[i][bin]++;
       }
       j++;
     }
