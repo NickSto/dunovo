@@ -22,8 +22,13 @@ void add_gap(Gaps *gaps, int seq, int coord, int length);
 Gaps *make_gaps();
 char *insert_gaps(Gaps *gaps, char *seq, int seq_num);
 
-// Take an existing alignment and consensus and compute the number of differences between each
-// sequence and the consensus.
+/* Take an existing alignment and consensus and compute the number of differences between each
+ * sequence and the consensus.
+ * Known bugs: counts no differences in the following sequences:
+ *   consensus: GA---CA
+ *   seq 1:     GA----A
+ *   seq 2:     GA--ACA
+ */
 int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
   int *diffs = malloc(sizeof(int) * n_seqs);
   int i = 0;
@@ -32,15 +37,23 @@ int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
     cons[i] = toupper(cons[i]);
     i++;
   }
-  int j;
+  int j, in_gap;
   // Loop through the sequences in the alignment.
   for (i = 0; i < n_seqs; i++) {
     j = 0;
     diffs[i] = 0;
     // Compare each base of the sequence to the consensus.
     while (seqs[i][j] != 0 && cons[j] != 0) {
+      if (cons[j] != '-' && seqs[i][j] != '-') {
+        in_gap = 0;
+      }
       if (toupper(seqs[i][j]) != cons[j]) {
-        diffs[i]++;
+        if (!in_gap) {
+          diffs[i]++;
+        }
+      }
+      if (cons[j] == '-' || seqs[i][j] == '-') {
+        in_gap = 1;
       }
       j++;
     }
@@ -67,7 +80,7 @@ int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len) {
     cons[i] = toupper(cons[i]);
     i++;
   }
-  int bin;
+  int bin, in_gap;
   // Loop through the sequences in the alignment.
   for (i = 0; i < n_seqs; i++) {
     j = 0;
@@ -77,8 +90,16 @@ int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len) {
       if (bin >= bins) {
         break;
       }
+      if (cons[j] != '-' && seqs[i][j] != '-') {
+        in_gap = 0;
+      }
       if (toupper(seqs[i][j]) != cons[j]) {
-        diffs[i][bin]++;
+        if (!in_gap) {
+          diffs[i][bin]++;
+        }
+      }
+      if (cons[j] == '-' || seqs[i][j] == '-') {
+        in_gap = 1;
       }
       j++;
     }
