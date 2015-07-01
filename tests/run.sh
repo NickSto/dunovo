@@ -84,6 +84,7 @@ function all {
   sscs
   sscs_r1
   sscs_p3
+  stats_diffs
 }
 
 # sscs.py defaults
@@ -103,6 +104,11 @@ function sscs_p3 {
   echo -e "\tsscs.py -p 3 ::: families.in.tsv:"
   python "$dirname/../sscs.py" -p 3 "$dirname/families.in.tsv" | paste - - | sort \
     | diff -s - <(cat "$dirname/families.out.tsv" | paste - - | sort)
+}
+
+function stats_diffs {
+  echo -e "\tstats.py diffs ::: gaps.msa.tsv:"
+  python "$dirname/../stats.py" diffs "$dirname/gaps.msa.tsv" | diff -s - "$dirname/gaps-diffs.out.tsv"
 }
 
 main "$@"
