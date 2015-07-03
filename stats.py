@@ -16,7 +16,7 @@ def main(argv):
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.set_defaults(**OPT_DEFAULTS)
 
-  parser.add_argument('stat', choices=('diffs', 'diffs-binned'),
+  parser.add_argument('stat', choices=('diffs', 'diffs-binned', 'seqlen'),
     help='The type of statistics to compute and print.')
   parser.add_argument('infile', metavar='read-families.msa.tsv', nargs='?',
     help='The --msa output of sscs.py. Will read from stdin if not provided.')
@@ -66,6 +66,16 @@ def process_family(stat, barcode, consensus, family):
       for diff in bins.contents:
         sys.stdout.write(str(diff)+'\t')
       sys.stdout.write(family[i].upper()+'\n')
+  elif stat == 'seqlen':
+    seq_lens = get_seq_lens(family)
+    print barcode+'\t'+'\t'.join(map(str, seq_lens))
+
+
+def get_seq_lens(family):
+  seq_lens = []
+  for seq in family:
+    seq_lens.append(len(seq))
+  return seq_lens
 
 
 def get_diffs(consensus, family):
