@@ -105,7 +105,8 @@ def get_diffs_binned(consensus, family, bins):
     else:
       seq_len = len(seq)
     c_family[i] = ctypes.c_char_p(seq)
-  align.get_diffs_binned.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_int * bins) * len(c_family))
+  int_array_pointer = ctypes.POINTER(ctypes.c_int * bins)
+  align.get_diffs_binned.restype = ctypes.POINTER(int_array_pointer * len(c_family))
   diffs = align.get_diffs_binned(c_consensus, c_family, len(c_family), seq_len, bins)
   return diffs.contents
 
