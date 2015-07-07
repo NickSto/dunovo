@@ -24,10 +24,12 @@ char *insert_gaps(Gaps *gaps, char *seq, int seq_num);
 
 /* Take an existing alignment and consensus and compute the number of differences between each
  * sequence and the consensus.
- * Known bugs: counts no differences in the following sequences:
+ * Known bugs:
+ * 1. Counts no differences in the following sequences:
  *   consensus: GA---CA
  *   seq 1:     GA----A
  *   seq 2:     GA--ACA
+ * 2. If a sequence starts with a gap, each base in the gap will be counted as a diff.
  */
 int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
   int *diffs = malloc(sizeof(int) * n_seqs);
@@ -61,10 +63,16 @@ int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
   return diffs;
 }
 
-// Take an existing alignment and consensus and compute the number of differences between each
-// sequence and the consensus. Break each sequence into bins and tally the differences in each bin.
-int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len) {
-  int bins = 10;
+/* Take an existing alignment and consensus and compute the number of differences between each
+ * sequence and the consensus. Break each sequence into bins and tally the differences in each bin.
+ * Known bugs:
+ * 1. counts no differences in the following sequences:
+ *   consensus: GA---CA
+ *   seq 1:     GA----A
+ *   seq 2:     GA--ACA
+ * 2. If a bin starts with a gap, each base in the gap will be counted as a diff.
+ */
+int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len, int bins) {
   int bin_size = (int)round((float)seq_len/bins);
   // Initialize the diffs 2d array.
   int **diffs = malloc(n_seqs * sizeof(int*));

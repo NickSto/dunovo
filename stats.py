@@ -7,10 +7,14 @@ import argparse
 script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
 align = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'align.so'))
 
-OPT_DEFAULTS = {}
+BINS = 10
+
+OPT_DEFAULTS = {'bins':10}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """"""
 
+
+#TODO: Report diffs as a percentage of sequence length (or bin length), since they can vary.
 def main(argv):
 
   parser = argparse.ArgumentParser(description=DESCRIPTION)
@@ -20,6 +24,8 @@ def main(argv):
     help='The type of statistics to compute and print.')
   parser.add_argument('infile', metavar='read-families.msa.tsv', nargs='?',
     help='The --msa output of sscs.py. Will read from stdin if not provided.')
+  parser.add_argument('-b', '--bins', type=int,
+    help='The number of bins to segment reads into when doing "diffs-binned".')
 
   args = parser.parse_args(argv[1:])
 
@@ -38,27 +44,27 @@ def main(argv):
     (this_barcode, name, seq) = fields
     if fields[1] == 'CONSENSUS':
       if family and consensus:
-        process_family(args.stat, barcode, consensus, family)
+        process_family(args, barcode, consensus, family)
       barcode = this_barcode
       consensus = seq
       family = []
     else:
       family.append(seq)
   if family and consensus:
-    process_family(args.stat, barcode, consensus, family)
+    process_family(args, barcode, consensus, family)
 
   if infile is not sys.stdin:
     infile.close()
 
 
 #TODO: Maybe print the number of N's in the consensus?
-def process_family(stat, barcode, consensus, family):
-  if stat == 'diffs':
+def process_family(args, barcode, consensus, family):
+  if args.stat == 'diffs':
     diffs = get_diffs(consensus, family)
     for (i, diff) in enumerate(diffs):
       print "{}\t{}\t{}".format(barcode, diff, family[i].upper())
-  elif stat == 'diffs-binned':
-    diffs = get_diffs_binned(consensus, family)
+  elif args.stat == 'diffs-binned':
+    diffs = get_diffs_binned(consensus, family, args.bins)
     if diffs is None:
       return
     for (i, bins) in enumerate(diffs):
@@ -66,7 +72,7 @@ def process_family(stat, barcode, consensus, family):
       for diff in bins.contents:
         sys.stdout.write(str(diff)+'\t')
       sys.stdout.write(family[i].upper()+'\n')
-  elif stat == 'seqlen':
+  elif args.stat == 'seqlen':
     seq_lens = get_seq_lens(family)
     print barcode+'\t'+'\t'.join(map(str, seq_lens))
 
@@ -88,7 +94,7 @@ def get_diffs(consensus, family):
   return diffs.contents
 
 
-def get_diffs_binned(consensus, family):
+def get_diffs_binned(consensus, family, bins):
   seq_len = None
   c_consensus = ctypes.c_char_p(consensus)
   c_family = (ctypes.c_char_p * len(family))()
@@ -99,8 +105,8 @@ def get_diffs_binned(consensus, family):
     else:
       seq_len = len(seq)
     c_family[i] = ctypes.c_char_p(seq)
-  align.get_diffs_binned.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_int * 10) * len(c_family))
-  diffs = align.get_diffs_binned(c_consensus, c_family, len(c_family), seq_len)
+  align.get_diffs_binned.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_int * bins) * len(c_family))
+  diffs = align.get_diffs_binned(c_consensus, c_family, len(c_family), seq_len, bins)
   return diffs.contents
 
 
