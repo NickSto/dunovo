@@ -2,12 +2,11 @@
 from __future__ import division
 import os
 import sys
+import math
 import ctypes
 import argparse
 script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
 align = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'align.so'))
-
-BINS = 10
 
 OPT_DEFAULTS = {'bins':10}
 USAGE = "%(prog)s [options]"
@@ -62,7 +61,7 @@ def process_family(args, barcode, consensus, family):
   if args.stat == 'diffs':
     diffs = get_diffs(consensus, family)
     for (i, diff) in enumerate(diffs):
-      print "{}\t{}\t{}".format(barcode, diff, family[i].upper())
+      print "{}\t{}\t{}".format(barcode, round_sig_figs(diff, 3), family[i].upper())
   elif args.stat == 'diffs-binned':
     diffs = get_diffs_binned(consensus, family, args.bins)
     if diffs is None:
@@ -70,7 +69,7 @@ def process_family(args, barcode, consensus, family):
     for (i, bins) in enumerate(diffs):
       sys.stdout.write(barcode+'\t')
       for diff in bins.contents:
-        sys.stdout.write(str(diff)+'\t')
+        sys.stdout.write(str(round_sig_figs(diff, 3))+'\t')
       sys.stdout.write(family[i].upper()+'\n')
   elif args.stat == 'seqlen':
     seq_lens = get_seq_lens(family)
@@ -89,8 +88,8 @@ def get_diffs(consensus, family):
   c_family = (ctypes.c_char_p * len(family))()
   for i, seq in enumerate(family):
     c_family[i] = ctypes.c_char_p(seq)
-  align.get_diffs_simple.restype = ctypes.POINTER(ctypes.c_int * len(c_family))
-  diffs = align.get_diffs_simple(c_consensus, c_family, len(c_family))
+  align.get_diffs_frac_simple.restype = ctypes.POINTER(ctypes.c_double * len(c_family))
+  diffs = align.get_diffs_frac_simple(c_consensus, c_family, len(c_family))
   return diffs.contents
 
 
@@ -105,10 +104,22 @@ def get_diffs_binned(consensus, family, bins):
     else:
       seq_len = len(seq)
     c_family[i] = ctypes.c_char_p(seq)
-  int_array_pointer = ctypes.POINTER(ctypes.c_int * bins)
-  align.get_diffs_binned.restype = ctypes.POINTER(int_array_pointer * len(c_family))
-  diffs = align.get_diffs_binned(c_consensus, c_family, len(c_family), seq_len, bins)
+  double_array_pointer = ctypes.POINTER(ctypes.c_double * bins)
+  align.get_diffs_frac_binned.restype = ctypes.POINTER(double_array_pointer * len(c_family))
+  diffs = align.get_diffs_frac_binned(c_consensus, c_family, len(c_family), seq_len, bins)
   return diffs.contents
+
+
+def round_sig_figs(n, figs):
+  if n == 0:
+    return n
+  elif n < 0:
+    n = -n
+    sign = -1
+  else:
+    sign = 1
+  magnitude = int(math.floor(math.log10(n)))
+  return sign * round(n, figs - 1 - magnitude)
 
 
 def fail(message):

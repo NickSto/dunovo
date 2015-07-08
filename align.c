@@ -39,11 +39,11 @@ int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
     cons[i] = toupper(cons[i]);
     i++;
   }
-  int j, in_gap;
   // Loop through the sequences in the alignment.
   for (i = 0; i < n_seqs; i++) {
-    j = 0;
+    int in_gap;
     diffs[i] = 0;
+    int j = 0;
     // Compare each base of the sequence to the consensus.
     while (seqs[i][j] != 0 && cons[j] != 0) {
       if (cons[j] != '-' && seqs[i][j] != '-') {
@@ -63,6 +63,23 @@ int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
   return diffs;
 }
 
+// Convert the output of get_diffs_simple() from raw diff counts to fractions of the total sequence
+// lengths.
+//TODO: Don't count gaps in sequence length.
+double *get_diffs_frac_simple(char *cons, char *seqs[], int n_seqs) {
+  int *diffs = get_diffs_simple(cons, seqs, n_seqs);
+  double *fracs = malloc(sizeof(double) * n_seqs);
+  int i;
+  for (i = 0; i < n_seqs; i++) {
+    int j = 0;
+    while (seqs[i][j] != 0 && cons[j] != 0) {
+      j++;
+    }
+    fracs[i] = (double)diffs[i]/j;
+  }
+  return fracs;
+}
+
 /* Take an existing alignment and consensus and compute the number of differences between each
  * sequence and the consensus. Break each sequence into bins and tally the differences in each bin.
  * Known bugs:
@@ -75,7 +92,7 @@ int *get_diffs_simple(char *cons, char *seqs[], int n_seqs) {
 int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len, int bins) {
   int bin_size = (int)round((float)seq_len/bins);
   // Initialize the diffs 2d array.
-  int **diffs = malloc(n_seqs * sizeof(int*));
+  int **diffs = malloc(sizeof(int*) * n_seqs);
   int i, j;
   for (i = 0; i < n_seqs; i++) {
     diffs[i] = malloc(bins * sizeof(int));
@@ -113,6 +130,42 @@ int **get_diffs_binned(char *cons, char *seqs[], int n_seqs, int seq_len, int bi
     }
   }
   return diffs;
+}
+
+// Convert the output of get_diffs_binned() from raw diff counts to fractions of the total bin
+// lengths.
+//TODO: Don't count gaps in bin length.
+double **get_diffs_frac_binned(char *cons, char *seqs[], int n_seqs, int seq_len, int bins) {
+  int bin_size = (int)round((float)seq_len/bins);
+  int **diffs = get_diffs_binned(cons, seqs, n_seqs, seq_len, bins);
+  double **fracs = malloc(sizeof(double*) * n_seqs);
+  int i;
+  for (i = 0; i < n_seqs; i++) {
+    fracs[i] = malloc(sizeof(double) * bins);
+    // Create and init array of lengths of the bins.
+    int bin_lengths[bins];
+    int bin;
+    for (bin = 0; bin < bins; bin++) {
+      bin_lengths[bin] = 0;
+    }
+    // Tally size of each bin.
+    int j = 0;
+    while (seqs[i][j] != 0 && cons[j] != 0) {
+      int bin = j/bin_size;
+      if (bin >= bins) {
+        break;
+      }
+      bin_lengths[bin]++;
+      j++;
+    }
+    // For each bin, calculate the diff fraction = diffs / bin_length.
+    for (bin = 0; bin < bins; bin++) {
+      fracs[i][bin] = (double)diffs[i][bin]/bin_lengths[bin];
+      // printf("bin %d: %d / %d = %f\t", bin, diffs[i][bin], bin_lengths[bin], fracs[i][bin]);
+    }
+    // printf("\n");
+  }
+  return fracs;
 }
 
 #define NAIVE_TEST_WINDOW 6
