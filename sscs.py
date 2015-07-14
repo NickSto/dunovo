@@ -23,9 +23,10 @@ def main(argv):
   parser.set_defaults(**OPT_DEFAULTS)
 
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
-    help='The input reads, sorted into families. One line per read pair, 7 tab-delimited columns: '
-         '1. barcode (concatenated alpha+beta), 2. read 1 name, 3. read 1 sequence, 4. read 1 '
-         'quality scores, 5. read 2 name, 6. read 2 sequence, 7. read 2 quality scores.')
+    help='The input reads, sorted into families. One line per read pair, 8 tab-delimited columns: '
+         '1. canonical barcode, 2. barcode order ("ab" for alpha+beta, "ba" for beta-alpha) 3. '
+         'read 1 name, 4. read 1 sequence, 5. read 1 quality scores, 6. read 2 name, 7. read 2 '
+         'sequence, 8. read 2 quality scores.')
   parser.add_argument('-r', '--min-reads', type=int,
     help='The minimum number of reads required to form a family. Families with fewer reads will '
          'be skipped. Default: %(default)s.')
@@ -44,7 +45,7 @@ def main(argv):
 
   args = parser.parse_args(argv[1:])
 
-  assert args.processes > 0
+  assert args.processes > 0, '-p must be greater than zero'
 
   # Check for required commands.
   missing_commands = []
@@ -79,21 +80,23 @@ def main(argv):
   all_pairs = 0
   family = []
   barcode = None
+  order = None
   for line in infile:
     fields = line.rstrip('\r\n').split('\t')
-    if len(fields) != 7:
+    if len(fields) != 8:
       continue
-    (this_barcode, name1, seq1, qual1, name2, seq2, qual2) = fields
+    (this_barcode, this_order, name1, seq1, qual1, name2, seq2, qual2) = fields
     # If the barcode has changed, we're in a new family.
     # Process the reads we've previously gathered as one family and start a new family.
-    if this_barcode != barcode:
-      process_family(family, barcode, args, workers=workers, stats=stats)
+    if this_barcode != barcode or this_order != order:
+      process_family(family, barcode, order, args, workers=workers, stats=stats)
       barcode = this_barcode
+      order = this_order
       family = []
     family.append((name1, seq1, qual1, name2, seq2, qual2))
     all_pairs += 1
   # Process the last family.
-  process_family(family, barcode, args, workers=workers, stats=stats)
+  process_family(family, barcode, order, args, workers=workers, stats=stats)
 
   if args.processes > 1:
     close_workers(workers)
@@ -163,10 +166,10 @@ def gather_args(args, infile, excluded_flags=('-S', '--slurm'),
   return out_args
 
 
-def delegate(worker, family, barcode):
+def delegate(worker, family, barcode, order):
   """Send a family to a worker process."""
   for pair in family:
-    line = barcode+'\t'+'\t'.join(pair)+'\n'
+    line = '{}\t{}\t{}\n'.format(barcode, order, '\t'.join(pair))
     worker['proc'].stdin.write(line)
 
 
@@ -191,7 +194,7 @@ def delete_tempfiles(workers):
       os.remove(worker['stats'])
 
 
-def process_family(family, barcode, args, workers=None, stats=None):
+def process_family(family, barcode, order, args, workers=None, stats=None):
   # Pass if family doesn't contain minimum # of reads.
   if len(family) < args.min_reads:
     return
@@ -200,10 +203,14 @@ def process_family(family, barcode, args, workers=None, stats=None):
   if args.processes > 1:
     i = stats['families'] % len(workers)
     worker = workers[i]
-    delegate(worker, family, barcode)
+    delegate(worker, family, barcode, order)
     return
   # We're a worker. Actually process the family.
   start = time.time()
+  # If order is beta+alpha, reverse it to get the "true" barcode (alpha+beta).
+  if order == 'ba':
+    half = len(barcode)//2
+    barcode = barcode[half:] + barcode[:half]
   pairs = len(family)
   if pairs == 1:
     (name1, seq1, qual1, name2, seq2, qual2) = family[0]
