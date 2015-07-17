@@ -218,9 +218,9 @@ def process_family(family, barcode, order, args, workers=None, stats=None):
       print '{bar}\tCONSENSUS\t{seq}\n{bar}\t{name}\t{seq}'.format(bar=barcode, name=name1, seq=seq1)
       print '{bar}\tCONSENSUS\t{seq}\n{bar}\t{name}\t{seq}'.format(bar=barcode, name=name2, seq=seq2)
     else:
-      print '>'+barcode+'.1'
+      print '>'+barcode+'.1:1'
       print seq1
-      print '>'+barcode+'.2'
+      print '>'+barcode+'.2:1'
       print seq2
   else:
     output = 'consensus'
@@ -249,7 +249,7 @@ def align_and_cons(family, barcode, mate, output='consensus'):
     msa = read_fasta(align_path)
   consensus = get_consensus(align_path)
   if output == 'consensus' and consensus is not None:
-    print '>{}.{}'.format(barcode, mate)
+    print '>{}.{}:{}'.format(barcode, mate, len(family))
     print consensus
   elif output == 'msa':
     print '{}\t{}\t{}'.format(barcode, 'CONSENSUS', consensus)

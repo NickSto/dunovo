@@ -11,7 +11,12 @@ $2 == "CONSENSUS" {
   } else {
     mate = 1;
   }
-  print ">" $1 "." mate;
+  printf(">%s.%d:%d\n", $1, mate, pairs);
   print $3;
+  pairs = 0;
   last = $1;
+}
+
+$2 != "CONSENSUS" {
+  pairs++;
 }
