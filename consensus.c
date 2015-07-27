@@ -4,12 +4,13 @@
 #include <ctype.h>
 #include <limits.h>
 
-// N.B. This defines the valid bases, but it's also effectively defined in the switch in get_votes()
+// N.B. This defines the valid bases, but it's also effectively defined in the switch in
+// get_votes_simple()
 #define N_BASES 6
 const char *BASES = "ACGTN-";
 #define THRES_DEFAULT 0.5
 
-int **get_votes(char *align[], int n_seqs, int seq_len);
+int **get_votes_simple(char *align[], int n_seqs, int seq_len);
 double **get_freqs(int *votes[], int seq_len);
 int **init_votes(int seq_len);
 void free_votes(int *votes[], int seq_len);
@@ -20,20 +21,17 @@ char *compress(char *consensus, int cons_len);
 char *make_consensus(int *votes[], int seq_len, double thres);
 
 
-int **get_votes(char *align[], int n_seqs, int seq_len) {
+// Tally the different bases at each position in an alignment.
+// Returns an array of arrays: for each position in the alignment, an array of the number of times
+// each base occurs at that position. The order of bases is as in the "BASES" constant.
+int **get_votes_simple(char *align[], int n_seqs, int seq_len) {
   int **votes = init_votes(seq_len);
 
   // Tally votes for each base.
-  int i, j, k;
+  int i, j;
   for (i = 0; i < n_seqs; i++) {
     for (j = 0; j < seq_len; j++) {
-      // N.B.: Could use this version without hardcoded literals, but it's about 40% slower.
-      // char base = toupper(align[i][j]);
-      // for (k = 0; k < N_BASES; k++) {
-      //   if (base == BASES[k]) {
-      //     votes[j][k]++;
-      //   }
-      // }
+      // N.B.: Could write this without hardcoded literals, but it's about 40% slower.
       switch (toupper(align[i][j])) {
         case 'A':
           votes[j][0]++;
@@ -61,11 +59,53 @@ int **get_votes(char *align[], int n_seqs, int seq_len) {
 }
 
 
+int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char thres) {
+  int **votes = init_votes(seq_len);
+
+  // Tally votes for each base.
+  int i, j;
+  for (i = 0; i < n_seqs; i++) {
+    for (j = 0; j < seq_len; j++) {
+      // Don't count bases whose quality is less than the threshold. Gaps are always counted.
+      //TODO: What to use as the quality for gaps?
+      if (align[i][j] != '-' && quals[i][j] < thres) {
+        continue;
+      }
+      // N.B.: Could write this without hardcoded literals, but it's about 40% slower.
+      switch (toupper(align[i][j])) {
+        case 'A':
+          votes[j][0]++;
+          break;
+        case 'C':
+          votes[j][1]++;
+          break;
+        case 'G':
+          votes[j][2]++;
+          break;
+        case 'T':
+          votes[j][3]++;
+          break;
+        case 'N':
+          votes[j][4]++;
+          break;
+        case '-':
+          votes[j][5]++;
+          break;
+      }
+    }
+  }
+
+  return votes;
+}
+
+
+// Convert the counts in the "votes" array returned by get_votes_simple() into base frequencies by
+// dividing by the total number of bases at each position.
 double **get_freqs(int *votes[], int seq_len) {
   double **freqs = init_freqs(seq_len);
 
   // This passes through the data twice, once to get the totals and once to calculate the freqs.
-  /*TODO: One of these passes could be eliminated by either getting the totals in get_votes()
+  /*TODO: One of these passes could be eliminated by either getting the totals in get_votes_simple()
    *      (but that would require breaking the separation btwn these functions) or by always having
    *      the total be equal to the number of sequences (only not true currently when a base isn't
    *      one of "ACGTN-").
@@ -209,7 +249,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  int **votes = get_votes(align, argc-1, seq_len);
+  int **votes = get_votes_simple(align, argc-1, seq_len);
   char *consensus = make_consensus(votes, seq_len, THRES_DEFAULT);
   print_votes(consensus, votes, seq_len);
   printf("%s\n", consensus);
