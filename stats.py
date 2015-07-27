@@ -100,7 +100,7 @@ def process_family(stats, barcode, consensus, family, args):
       elif stat == 'seqlen':
         sys.stdout.write('{}\t'.format(len(read)))
       elif stat == 'strand':
-        sys.stdout.write(strand+'\t')
+        sys.stdout.write('{}\t'.format(strand))
     print read.upper()
 
 

@@ -16,7 +16,7 @@ function main {
   gunzip -c "$fastq1" | paste - - - - \
     | paste - <(gunzip -c "$fastq2" | paste - - - -) \
     | awk -f make-barcodes.awk \
-    | sort -k 1 \
+    | sort \
     | sscs.py \
     | gzip -c - \
     > "$sscs"

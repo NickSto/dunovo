@@ -1,3 +1,7 @@
 *.so
 *.sublime-project
 *.sublime-workspace
+*.fa
+*.tsv
+align
+consensus
