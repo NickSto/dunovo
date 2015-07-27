@@ -168,11 +168,44 @@ double **get_diffs_frac_binned(char *cons, char *seqs[], int n_seqs, int seq_len
   return fracs;
 }
 
+
+// Take an input sequence and insert gaps according to another, already-aligned sequence with gaps.
+// Input strings must be null-terminated. "gap_char1" is the character used for gaps in
+// "gapped_seq", and "gap_char2" is the gap character in "inseq".
+// N.B.: The ungapped length of "gapped_seq" must be equal to the length of "inseq".
+char *transfer_gaps(char *gapped_seq, char *inseq, char gap_char1, char gap_char2) {
+  if (gap_char1 == 0) {
+    gap_char1 = '-';
+  }
+  if (gap_char2 == 0) {
+    gap_char2 = '-';
+  }
+  int gapped_len = strlen(gapped_seq);
+  char *outseq = malloc(sizeof(char) * gapped_len + 1);
+
+  // Transfer characters from inseq to outseq, except when gapped_seq has a gap at that spot
+  // (insert a gap there instead).
+  int g, o, i;
+  for (g = 0, o = 0, i = 0; g < gapped_len; g++, o++) {
+    if (gapped_seq[g] == gap_char1) {
+      outseq[o] = gap_char2;
+    } else {
+      outseq[o] = inseq[i];
+      i++;
+    }
+  }
+  outseq[gapped_len] = '\0';
+
+  return outseq;
+}
+
+
 #define NAIVE_TEST_WINDOW 6
 #define NAIVE_TEST_THRES 0.80
 #define NAIVE_TEST_MIN 2
 #define NAIVE_WINDOW 10
 #define NAIVE_THRES 0.80
+
 
 // A naive algorithm for aligning two sequences which are expected to be very similar to each other
 // and already nearly aligned.
