@@ -4,23 +4,45 @@
 #include <ctype.h>
 #include <math.h>
 
-typedef struct Gap {
-  int seq;
-  int coord;
-  int length;
-  struct Gap *next;
-} Gap;
+//             ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz
+#define TRANS "TVGHEFCDIJMLKNOPQYWAABSXRZ[\\]^_`tvghefcdijmlknopqywaabsxrz"
+#define TRANS_OFFSET 65
+#define TRANS_LEN 57
 
-typedef struct Gaps {
-  int length;
-  struct Gap *root;
-  struct Gap *tip;
-} Gaps;
+char* get_revcomp(char *input);
+char get_char_comp(char c);
+int *get_diffs_simple(char *cons, char *seqs[], int n_seqs);
+double *get_diffs_frac_simple(char *cons, char *seqs[], int n_seqs);
+double **get_diffs_frac_binned(char *cons, char *seqs[], int n_seqs, int seq_len, int bins);
+char *transfer_gaps(char *gapped_seq, char *inseq, char gap_char1, char gap_char2);
+char **transfer_gaps_multi(int n_seqs, char *gapped_seqs[], char *inseqs[], char gap_char1, char gap_char2);
 
-int _test_match(char *seq1, int start1, char *seq2, int start2);
-void add_gap(Gaps *gaps, int seq, int coord, int length);
-Gaps *make_gaps();
-char *insert_gaps(Gaps *gaps, char *seq, int seq_num);
+
+// Return the reverse complement of a sequence.
+// Makes a new copy of the string, so the original is not modified.
+char* get_revcomp(char *input) {
+  int length = strlen(input);
+  char *output = malloc(sizeof(char) * length + 1);
+  int i, j;
+  for (i = 0, j = length - 1; i < length && j >= 0; i++, j--) {
+    output[j] = get_char_comp(input[i]);
+  }
+  output[length] = '\0';
+  return output;
+}
+
+
+// Return the complement of a base.
+// Uses a simple lookup table: a string with the complements of all possible sequence characters.
+char get_char_comp(char c) {
+  int i = c - TRANS_OFFSET;
+  if (i < 0 || i > TRANS_LEN) {
+    return c;
+  } else {
+    return TRANS[i];
+  }
+}
+
 
 /* Take an existing alignment and consensus and compute the number of differences between each
  * sequence and the consensus.
@@ -200,11 +222,43 @@ char *transfer_gaps(char *gapped_seq, char *inseq, char gap_char1, char gap_char
 }
 
 
+// Wrapper for transfer_gaps() when operating on a set of sequences at once.
+char **transfer_gaps_multi(int n_seqs, char *gapped_seqs[], char *inseqs[], char gap_char1,
+                           char gap_char2) {
+  char **outseqs = malloc(sizeof(char *) * n_seqs);
+  int i;
+  for (i = 0; i < n_seqs; i++) {
+    outseqs[i] = transfer_gaps(gapped_seqs[i], inseqs[i], gap_char1, gap_char2);
+  }
+  return outseqs;
+}
+
+
+/**************************************** Naive Aligner ****************************************/
+
 #define NAIVE_TEST_WINDOW 6
 #define NAIVE_TEST_THRES 0.80
 #define NAIVE_TEST_MIN 2
 #define NAIVE_WINDOW 10
 #define NAIVE_THRES 0.80
+
+typedef struct Gap {
+  int seq;
+  int coord;
+  int length;
+  struct Gap *next;
+} Gap;
+
+typedef struct Gaps {
+  int length;
+  struct Gap *root;
+  struct Gap *tip;
+} Gaps;
+
+int _test_match(char *seq1, int start1, char *seq2, int start2);
+void add_gap(Gaps *gaps, int seq, int coord, int length);
+Gaps *make_gaps();
+char *insert_gaps(Gaps *gaps, char *seq, int seq_num);
 
 
 // A naive algorithm for aligning two sequences which are expected to be very similar to each other

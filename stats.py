@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 from __future__ import division
-import os
 import sys
 import math
-import ctypes
 import argparse
-script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-align = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'align.so'))
-swalign = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'swalign.so'))
+import swalign
+import align
 
 INF = float('inf')
 STATS = ('diffs', 'diffs-binned', 'seqlen', 'strand')
@@ -43,8 +40,6 @@ def main(argv):
   if 'strand' in stats and not args.probes:
     fail('Error: must provide a probe if requesting "strand" statistic.')
 
-  init_clibs()
-
   if args.infile:
     infile = open(args.infile)
   else:
@@ -78,9 +73,9 @@ def process_family(stats, barcode, consensus, family, args):
   # Compute stats requiring the whole family at once.
   for stat in stats:
     if stat == 'diffs':
-      diffs = get_diffs(consensus, family)
+      diffs = align.get_diffs_frac_simple(consensus, family)
     elif stat == 'diffs-binned':
-      diffs_binned = get_diffs_binned(consensus, family, args.bins)
+      diffs_binned = align.get_diffs_frac_binned(consensus, family, args.bins)
     elif stat == 'strand':
       probes = args.probes.split(',')
       strand = get_strand(consensus, probes, args.thres)
@@ -95,40 +90,13 @@ def process_family(stats, barcode, consensus, family, args):
         if diffs_binned is None:
           sys.stdout.write('\t' * args.bins)
         else:
-          for diff in diffs_binned[i].contents:
+          for diff in diffs_binned[i]:
             sys.stdout.write(str(round_sig_figs(diff, 3))+'\t')
       elif stat == 'seqlen':
         sys.stdout.write('{}\t'.format(len(read)))
       elif stat == 'strand':
         sys.stdout.write('{}\t'.format(strand))
     print read.upper()
-
-
-def get_diffs(consensus, family):
-  c_consensus = ctypes.c_char_p(consensus)
-  c_family = (ctypes.c_char_p * len(family))()
-  for i, seq in enumerate(family):
-    c_family[i] = ctypes.c_char_p(seq)
-  align.get_diffs_frac_simple.restype = ctypes.POINTER(ctypes.c_double * len(c_family))
-  diffs = align.get_diffs_frac_simple(c_consensus, c_family, len(c_family))
-  return diffs.contents
-
-
-def get_diffs_binned(consensus, family, bins):
-  seq_len = None
-  c_consensus = ctypes.c_char_p(consensus)
-  c_family = (ctypes.c_char_p * len(family))()
-  for i, seq in enumerate(family):
-    if seq_len:
-      if seq_len != len(seq):
-        return None
-    else:
-      seq_len = len(seq)
-    c_family[i] = ctypes.c_char_p(seq)
-  double_array_pointer = ctypes.POINTER(ctypes.c_double * bins)
-  align.get_diffs_frac_binned.restype = ctypes.POINTER(double_array_pointer * len(c_family))
-  diffs = align.get_diffs_frac_binned(c_consensus, c_family, len(c_family), seq_len, bins)
-  return diffs.contents
 
 
 def get_strand(seq, probes, thres):
@@ -139,15 +107,11 @@ def get_strand(seq, probes, thres):
   direction with a higher identity.
   If the votes that were cast are unanimous for one direction, that strand is returned.
   Else, return None."""
-  seq_pair = SeqPair(seq, len(seq), '', 0)
   votes = []
   for probe in probes:
-    seq_pair.b = probe
-    seq_pair.blen = len(probe)
-    alignment = swalign.smith_waterman(ctypes.pointer(seq_pair), 1).contents
+    alignment = swalign.smith_waterman(seq, probe)
     sense_id = alignment.matches/len(probe)
-    seq_pair.b = swalign.revcomp(probe)
-    alignment = swalign.smith_waterman(ctypes.pointer(seq_pair), 1).contents
+    alignment = swalign.smith_waterman(seq, align.get_revcomp(probe))
     anti_id  = alignment.matches/len(probe)
     # print '{}: sense: {}, anti: {}'.format(probe, sense_id, anti_id)
     if sense_id > thres or anti_id > thres:
@@ -163,11 +127,6 @@ def get_strand(seq, probes, thres):
     else:
       strand = vote
   return strand
-
-
-def init_clibs():
-  swalign.smith_waterman.restype = ctypes.POINTER(Align)
-  swalign.revcomp.restype = ctypes.c_char_p
 
 
 def round_sig_figs(n, figs):
@@ -188,26 +147,6 @@ def fail(message):
   sys.stderr.write(message+"\n")
   sys.exit(1)
 
-
-class SeqPair(ctypes.Structure):
-  _fields_ = [
-    ('a', ctypes.c_char_p),
-    ('alen', ctypes.c_uint),
-    ('b', ctypes.c_char_p),
-    ('blen', ctypes.c_uint),
-  ]
-
-
-class Align(ctypes.Structure):
-  _fields_ = [
-    ('seqs', ctypes.POINTER(SeqPair)),
-    ('start_a', ctypes.c_int),
-    ('start_b', ctypes.c_int),
-    ('end_a', ctypes.c_int),
-    ('end_b', ctypes.c_int),
-    ('matches', ctypes.c_int),
-    ('score', ctypes.c_double),
-  ]
 
 if __name__ == '__main__':
   sys.exit(main(sys.argv))
