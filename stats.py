@@ -3,8 +3,8 @@ from __future__ import division
 import sys
 import math
 import argparse
+import seqtools
 import swalign
-import align
 
 INF = float('inf')
 STATS = ('diffs', 'diffs-binned', 'seqlen', 'strand')
@@ -73,9 +73,9 @@ def process_family(stats, barcode, consensus, family, args):
   # Compute stats requiring the whole family at once.
   for stat in stats:
     if stat == 'diffs':
-      diffs = align.get_diffs_frac_simple(consensus, family)
+      diffs = seqtools.get_diffs_frac_simple(consensus, family)
     elif stat == 'diffs-binned':
-      diffs_binned = align.get_diffs_frac_binned(consensus, family, args.bins)
+      diffs_binned = seqtools.get_diffs_frac_binned(consensus, family, args.bins)
     elif stat == 'strand':
       probes = args.probes.split(',')
       strand = get_strand(consensus, probes, args.thres)
@@ -111,7 +111,7 @@ def get_strand(seq, probes, thres):
   for probe in probes:
     alignment = swalign.smith_waterman(seq, probe)
     sense_id = alignment.matches/len(probe)
-    alignment = swalign.smith_waterman(seq, align.get_revcomp(probe))
+    alignment = swalign.smith_waterman(seq, seqtools.get_revcomp(probe))
     anti_id  = alignment.matches/len(probe)
     # print '{}: sense: {}, anti: {}'.format(probe, sense_id, anti_id)
     if sense_id > thres or anti_id > thres:
