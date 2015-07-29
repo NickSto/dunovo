@@ -17,8 +17,10 @@ void free_votes(int *votes[], int seq_len);
 double **init_freqs(int seq_len);
 void free_freqs(double *freqs[], int seq_len);
 void print_votes(char *consensus, int *votes[], int seq_len);
-char *compress(char *consensus, int cons_len);
-char *make_consensus(int *votes[], int seq_len, double thres);
+char *rm_gaps(char *consensus, int cons_len);
+char *build_consensus(int *votes[], int seq_len, double thres);
+char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, double thres,
+                    char qual_thres);
 
 
 // Tally the different bases at each position in an alignment.
@@ -188,8 +190,8 @@ void print_votes(char *consensus, int *votes[], int seq_len) {
 
 
 // Take a consensus sequence which may have gaps ('-' characters) and remove them to produce the
-// actual final sequence.
-char *compress(char *consensus, int cons_len) {
+// actual final sequence. "cons_len" should be the length of the original, gapped, sequence.
+char *rm_gaps(char *consensus, int cons_len) {
   char *output = malloc(sizeof(char) * cons_len + 1);
   int i;
   int j = 0;
@@ -199,12 +201,12 @@ char *compress(char *consensus, int cons_len) {
       j++;
     }
   }
-  output[cons_len] = '\0';
+  output[j] = '\0';
   return output;
 }
 
 
-char *make_consensus(int *votes[], int seq_len, double thres) {
+char *build_consensus(int *votes[], int seq_len, double thres) {
   char *consensus = malloc(sizeof(char) * seq_len + 1);
   
   int i, j;
@@ -233,6 +235,27 @@ char *make_consensus(int *votes[], int seq_len, double thres) {
 }
 
 
+// Convenience function to create a consensus in one step.
+// Give 0 as "quals" to not use quality scores, and -1.0 as "cons_thres" to use the default
+// consensus threshold when evaluating base votes.
+char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, double cons_thres,
+                    char qual_thres) {
+  if (cons_thres == -1.0) {
+    cons_thres = THRES_DEFAULT;
+  }
+  int **votes;
+  if (quals == 0) {
+    votes = get_votes_simple(align, n_seqs, seq_len);
+  } else {
+    votes = get_votes_qual(align, quals, n_seqs, seq_len, cons_thres);
+  }
+  char *consensus_gapped = build_consensus(votes, seq_len, cons_thres);
+  char *consensus = rm_gaps(consensus_gapped, seq_len);
+  free_votes(votes, seq_len);
+  return consensus;
+}
+
+
 int main(int argc, char *argv[]) {
   char **align = malloc(sizeof(char *) * (argc-1));
 
@@ -250,9 +273,10 @@ int main(int argc, char *argv[]) {
   }
 
   int **votes = get_votes_simple(align, argc-1, seq_len);
-  char *consensus = make_consensus(votes, seq_len, THRES_DEFAULT);
+  char *consensus = build_consensus(votes, seq_len, THRES_DEFAULT);
   print_votes(consensus, votes, seq_len);
   printf("%s\n", consensus);
+  free_votes(votes, seq_len);
 
   return 0;
 }
