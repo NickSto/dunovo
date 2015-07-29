@@ -247,7 +247,7 @@ char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, doubl
   if (quals == 0) {
     votes = get_votes_simple(align, n_seqs, seq_len);
   } else {
-    votes = get_votes_qual(align, quals, n_seqs, seq_len, cons_thres);
+    votes = get_votes_qual(align, quals, n_seqs, seq_len, qual_thres);
   }
   char *consensus_gapped = build_consensus(votes, seq_len, cons_thres);
   char *consensus = rm_gaps(consensus_gapped, seq_len);
