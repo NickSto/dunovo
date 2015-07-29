@@ -8,13 +8,15 @@ import tempfile
 import argparse
 import subprocess
 import distutils.spawn
+import consensus
 
-REQUIRED_COMMANDS = ['mafft', 'em_cons']
+REQUIRED_COMMANDS = ['mafft']
 OPT_DEFAULTS = {'min_reads':3, 'processes':1}
 USAGE = "%(prog)s [options]"
-DESCRIPTION = """Build single-strand consensus sequences from read families. Pipe sorted reads into
-stdin. Prints single-strand consensus sequences in FASTA to stdout. The sequence names are
-BARCODE.MATE, e.g. "CTCAGATAACATACCTTATATGCA.1"."""
+DESCRIPTION = """Build consensus sequences from read families. Pipe sorted reads into stdin. Prints
+single-strand consensus sequences in FASTA to stdout. The sequence names are BARCODE.MATE.SEQS, e.g.
+"CTCAGATAACATACCTTATATGCA.1:7", where "BARCODE" is the input barcode, "MATE" is "1" for the first
+read in the pair and "2" for the second, and "SEQS" is the number of reads in the family."""
 
 
 def main(argv):
@@ -28,8 +30,8 @@ def main(argv):
          'read 1 name, 4. read 1 sequence, 5. read 1 quality scores, 6. read 2 name, 7. read 2 '
          'sequence, 8. read 2 quality scores.')
   parser.add_argument('-r', '--min-reads', type=int,
-    help='The minimum number of reads required to form a family. Families with fewer reads will '
-         'be skipped. Default: %(default)s.')
+    help='The minimum number of reads (from each strand) required to form a family. Families with '
+         'fewer reads will be skipped. Default: %(default)s.')
   parser.add_argument('-m', '--msa', action='store_true',
     help='Print the multiple sequence alignment as well as the consensus. Instead of printing '
          'FASTA, it will print a tab-delimited format with 3 columns: 1. barcode, 2. read name, 3. '
@@ -244,16 +246,18 @@ def align_and_cons(family, barcode, mate, output='consensus'):
   "mate" is "1" or "2" and determines which read in the pair to process.
   "output" is "consensus" to print the consensus sequence in FASTA format, or
     "msa" to print the full multiple sequence alignment in tab-delimited format."""
-  align_path = make_msa(family, mate)
-  if output == 'msa':
-    msa = read_fasta(align_path)
-  consensus = get_consensus(align_path)
-  if output == 'consensus' and consensus is not None:
+  align_raw = make_msa(family, mate)
+  if align_raw is None:
+    logging.warning('Error aligning family {} (read {}).'.format(barcode, mate))
+    return
+  align = read_fasta(align_raw, is_file=False)
+  cons = consensus.get_consensus([read['seq'] for read in align])
+  if output == 'consensus' and cons is not None:
     print '>{}.{}:{}'.format(barcode, mate, len(family))
-    print consensus
+    print cons
   elif output == 'msa':
-    print '{}\t{}\t{}'.format(barcode, 'CONSENSUS', consensus)
-    for sequence in msa:
+    print '{}\t{}\t{}'.format(barcode, 'CONSENSUS', cons)
+    for sequence in align:
       print '{}\t{}\t{}'.format(barcode, sequence['name'], sequence['seq'])
 
 
@@ -271,51 +275,36 @@ def make_msa(family, mate):
         seq = pair[4]
       family_file.write('>'+name+'\n')
       family_file.write(seq+'\n')
-  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as align_file:
-    with open(os.devnull, 'w') as devnull:
-      command = ['mafft', '--nuc', '--quiet', family_file.name]
-      subprocess.call(command, stdout=align_file, stderr=devnull)
-  os.remove(family_file.name)
-  return align_file.name
-
-
-def get_consensus(align_path):
-  """Make a consensus from a multiple sequence alignment file and return the
-  consensus sequence as a string.
-  Uses the EMBOSS em_cons command."""
-  # Note on em_cons output:
-  # It may always be lowercase, but maybe not. It can contain "N", and possibly "-".
-  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as cons_file:
-    cons_path = cons_file.name
   with open(os.devnull, 'w') as devnull:
-    command = ['em_cons', '-sequence', align_path, '-outseq', cons_path]
-    subprocess.call(command, stderr=devnull)
-  os.remove(align_path)
-  if os.path.getsize(cons_path) == 0:
-    os.remove(cons_path)
-    return None
-  else:
-    seqs = read_fasta(cons_path)
-    os.remove(cons_path)
-    if seqs:
-      return seqs[0]['seq']
+    try:
+      command = ['mafft', '--nuc', '--quiet', family_file.name]
+      output = subprocess.check_output(command, stderr=devnull)
+    except (OSError, subprocess.CalledProcessError):
+      return None
+  os.remove(family_file.name)
+  return output
 
 
-def read_fasta(fasta_path):
+def read_fasta(fasta, is_file=True):
   """Quick and dirty FASTA parser. Return the sequences and their names.
-  Returns a list of sequences. Each is a dict of 'name' and 'seq'."""
+  Returns a list of sequences. Each is a dict of 'name' and 'seq'.
+  Warning: Reads the entire contents of the file into memory at once."""
   sequences = []
   seq_lines = []
   seq_name = None
-  with open(fasta_path) as fasta_file:
-    for line in fasta_file:
-      if line.startswith('>'):
-        if seq_lines:
-          sequences.append({'name':seq_name, 'seq':''.join(seq_lines)})
-        seq_lines = []
-        seq_name = line.rstrip('\r\n')[1:]
-        continue
-      seq_lines.append(line.strip())
+  if is_file:
+    with open(fasta) as fasta_file:
+      fasta_lines = fasta_file.readlines()
+  else:
+    fasta_lines = fasta.splitlines()
+  for line in fasta_lines:
+    if line.startswith('>'):
+      if seq_lines:
+        sequences.append({'name':seq_name, 'seq':''.join(seq_lines)})
+      seq_lines = []
+      seq_name = line.rstrip('\r\n')[1:]
+      continue
+    seq_lines.append(line.strip())
   if seq_lines:
     sequences.append({'name':seq_name, 'seq':''.join(seq_lines)})
   return sequences
