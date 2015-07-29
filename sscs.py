@@ -95,7 +95,8 @@ def main(argv):
       barcode = this_barcode
       order = this_order
       family = []
-    family.append((name1, seq1, qual1, name2, seq2, qual2))
+    pair = {'name1': name1, 'seq1':seq1, 'qual1':qual1, 'name2':name2, 'seq2':seq2, 'qual2':qual2}
+    family.append(pair)
     all_pairs += 1
   # Process the last family.
   process_family(family, barcode, order, args, workers=workers, stats=stats)
@@ -171,7 +172,8 @@ def gather_args(args, infile, excluded_flags=('-S', '--slurm'),
 def delegate(worker, family, barcode, order):
   """Send a family to a worker process."""
   for pair in family:
-    line = '{}\t{}\t{}\n'.format(barcode, order, '\t'.join(pair))
+    line = '{}\t{}\t{name1}\t{seq1}\t{qual1}\t{name2}\t{seq2}\t{qual2}\n'.format(barcode, order,
+                                                                                 **pair)
     worker['proc'].stdin.write(line)
 
 
@@ -215,15 +217,17 @@ def process_family(family, barcode, order, args, workers=None, stats=None):
     barcode = barcode[half:] + barcode[:half]
   pairs = len(family)
   if pairs == 1:
-    (name1, seq1, qual1, name2, seq2, qual2) = family[0]
+    pair = family[0]
     if args.msa:
-      print '{bar}\tCONSENSUS\t{seq}\n{bar}\t{name}\t{seq}'.format(bar=barcode, name=name1, seq=seq1)
-      print '{bar}\tCONSENSUS\t{seq}\n{bar}\t{name}\t{seq}'.format(bar=barcode, name=name2, seq=seq2)
+      print ('{bar}\tCONSENSUS\t{seq1}\n'
+             '{bar}\t{name1}\t{seq1}\n'
+             '{bar}\tCONSENSUS\t{seq2}\n'
+             '{bar}\t{name2}\t{seq2}').format(bar=barcode, **pair)
     else:
       print '>'+barcode+'.1:1'
-      print seq1
+      print pair['seq1']
       print '>'+barcode+'.2:1'
-      print seq2
+      print pair['seq2']
   else:
     output = 'consensus'
     if args.msa:
@@ -246,6 +250,8 @@ def align_and_cons(family, barcode, mate, output='consensus'):
   "mate" is "1" or "2" and determines which read in the pair to process.
   "output" is "consensus" to print the consensus sequence in FASTA format, or
     "msa" to print the full multiple sequence alignment in tab-delimited format."""
+  mate = str(mate)
+  assert mate == '1' or mate == '2'
   align_raw = make_msa(family, mate)
   if align_raw is None:
     logging.warning('Error aligning family {} (read {}).'.format(barcode, mate))
@@ -264,15 +270,12 @@ def align_and_cons(family, barcode, mate, output='consensus'):
 def make_msa(family, mate):
   """Perform a multiple sequence alignment on a set of sequences.
   Uses MAFFT."""
+  assert mate == '1' or mate == '2'
   #TODO: Replace with tempfile.mkstemp()?
   with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as family_file:
     for pair in family:
-      if mate == 1:
-        name = pair[0]
-        seq = pair[1]
-      else:
-        name = pair[3]
-        seq = pair[4]
+      name = pair['name'+mate]
+      seq = pair['seq'+mate]
       family_file.write('>'+name+'\n')
       family_file.write(seq+'\n')
   with open(os.devnull, 'w') as devnull:
