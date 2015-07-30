@@ -4,6 +4,7 @@ import ctypes
 script_dir = os.path.dirname(os.path.realpath(__file__))
 seqtools = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'seqtoolsc.so'))
 seqtools.get_revcomp.restype = ctypes.c_char_p
+seqtools.transfer_gaps.restype = ctypes.c_char_p
 
 
 def get_revcomp(seq):
@@ -38,3 +39,28 @@ def get_diffs_frac_binned(consensus, family, bins):
   for diffs_c in diffs_binned_c.contents:
     diffs_binned.append(diffs_c.contents)
   return diffs_binned
+
+
+def transfer_gaps(aligned, seq, gap_char_in='-', gap_char_out='-'):
+  gap_char_in_c = ctypes.c_char(gap_char_in)
+  gap_char_out_c = ctypes.c_char(gap_char_out)
+  return seqtools.transfer_gaps(aligned, seq, gap_char_in_c, gap_char_out_c)
+
+
+def transfer_gaps_multi(seqs, aligned, gap_char_in='-', gap_char_out='-'):
+  gap_char_in_c = ctypes.c_char(gap_char_in)
+  gap_char_out_c = ctypes.c_char(gap_char_out)
+  n_seqs = len(seqs)
+  assert n_seqs == len(aligned), 'Error: Unequal number of gapped and ungapped sequences.'
+  seqs_c = (ctypes.c_char_p * n_seqs)()
+  for i, seq in enumerate(seqs):
+    seqs_c[i] = ctypes.c_char_p(seq)
+  aligned_c = (ctypes.c_char_p * n_seqs)()
+  for i, seq in enumerate(aligned):
+    aligned_c[i] = ctypes.c_char_p(seq)
+  seqtools.transfer_gaps_multi.restype = ctypes.POINTER(ctypes.c_char_p * n_seqs)
+  output_c = seqtools.transfer_gaps_multi(n_seqs, aligned_c, seqs_c, gap_char_in_c, gap_char_out_c)
+  output = []
+  for seq in output_c.contents:
+    output.append(seq)
+  return output

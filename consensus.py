@@ -6,24 +6,24 @@ consensus = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'consensusc.so'))
 consensus.get_consensus.restype = ctypes.c_char_p
 
 
-def get_consensus(alignment, cons_thres=-1.0, qualities=None, qual_thres=' '):
+# N.B.: The quality scores must be aligned with their accompanying sequences.
+def get_consensus(align, quals=(), cons_thres=-1.0, qual_thres=' '):
   cons_thres_c = ctypes.c_double(cons_thres)
   qual_thres_c = ctypes.c_char(qual_thres)
-  n_seqs = len(alignment)
-  assert qualities is None or len(qualities) == n_seqs, 'Different number of sequences and qualities.'
+  n_seqs = len(align)
+  assert quals is None or len(quals) == n_seqs, 'Different number of sequences and quals.'
   seq_len = None
-  for seq in alignment:
+  for seq in (align + quals):
     if seq_len is None:
       seq_len = len(seq)
     else:
       assert seq_len == len(seq), 'All sequences in the alignment must be the same length.'
   align_c = (ctypes.c_char_p * n_seqs)()
-  for i, seq in enumerate(alignment):
+  for i, seq in enumerate(align):
     align_c[i] = ctypes.c_char_p(seq)
-  if qualities:
-    qual_c = (ctypes.c_char_p * n_seqs)()
-    for i, qual in enumerate(qualities):
-      qual_c[i] = ctypes.c_char_p(qual)
-  else:
-    qual_c = 0
-  return consensus.get_consensus(align_c, qual_c, n_seqs, seq_len, cons_thres_c, qual_thres_c)
+  quals_c = (ctypes.c_char_p * n_seqs)()
+  for i, qual in enumerate(quals):
+    quals_c[i] = ctypes.c_char_p(qual)
+  if not quals:
+    quals_c = 0
+  return consensus.get_consensus(align_c, quals_c, n_seqs, seq_len, cons_thres_c, qual_thres_c)

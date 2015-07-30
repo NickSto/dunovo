@@ -9,9 +9,10 @@ import argparse
 import subprocess
 import distutils.spawn
 import consensus
+import seqtools
 
 REQUIRED_COMMANDS = ['mafft']
-OPT_DEFAULTS = {'min_reads':3, 'processes':1}
+OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build consensus sequences from read families. Pipe sorted reads into stdin. Prints
 single-strand consensus sequences in FASTA to stdout. The sequence names are BARCODE.MATE.SEQS, e.g.
@@ -32,6 +33,12 @@ def main(argv):
   parser.add_argument('-r', '--min-reads', type=int,
     help='The minimum number of reads (from each strand) required to form a family. Families with '
          'fewer reads will be skipped. Default: %(default)s.')
+  parser.add_argument('-q', '--qual', type=int,
+    help='Base quality threshold. Bases below this quality will not be counted. '
+         'Default: %(default)s.')
+  parser.add_argument('-F', '--qual-format', choices=('sanger',),
+    help='FASTQ quality score format. Sanger scores are assumed to begin at \'!\' (33). Default: '
+         '%(default)s.')
   parser.add_argument('-m', '--msa', action='store_true',
     help='Print the multiple sequence alignment as well as the consensus. Instead of printing '
          'FASTA, it will print a tab-delimited format with 3 columns: 1. barcode, 2. read name, 3. '
@@ -48,6 +55,18 @@ def main(argv):
   args = parser.parse_args(argv[1:])
 
   assert args.processes > 0, '-p must be greater than zero'
+  # Make dict of process_family() parameters that don't change between families.
+  static = {}
+  static['processes'] = args.processes
+  static['min_reads'] = args.min_reads
+  if args.msa:
+    static['output'] = 'msa'
+  else:
+    static['output'] = 'consensus'
+  if args.qual_format == 'sanger':
+    static['qual_thres'] = chr(args.qual + 33)
+  else:
+    fail('Error: unrecognized --qual-format.')
 
   # Check for required commands.
   missing_commands = []
@@ -91,7 +110,7 @@ def main(argv):
     # If the barcode has changed, we're in a new family.
     # Process the reads we've previously gathered as one family and start a new family.
     if this_barcode != barcode or this_order != order:
-      process_family(family, barcode, order, args, workers=workers, stats=stats)
+      process_family(family, barcode, order, workers=workers, stats=stats, **static)
       barcode = this_barcode
       order = this_order
       family = []
@@ -99,7 +118,7 @@ def main(argv):
     family.append(pair)
     all_pairs += 1
   # Process the last family.
-  process_family(family, barcode, order, args, workers=workers, stats=stats)
+  process_family(family, barcode, order, workers=workers, stats=stats, **static)
 
   if args.processes > 1:
     close_workers(workers)
@@ -198,13 +217,14 @@ def delete_tempfiles(workers):
       os.remove(worker['stats'])
 
 
-def process_family(family, barcode, order, args, workers=None, stats=None):
+def process_family(family, barcode, order, workers=None, stats=None, output='consensus',
+                   processes=1, min_reads=1, qual_thres=' '):
   # Pass if family doesn't contain minimum # of reads.
-  if len(family) < args.min_reads:
+  if len(family) < min_reads:
     return
   stats['families'] += 1
   # Are we the controller process or a worker?
-  if args.processes > 1:
+  if processes > 1:
     i = stats['families'] % len(workers)
     worker = workers[i]
     delegate(worker, family, barcode, order)
@@ -218,22 +238,19 @@ def process_family(family, barcode, order, args, workers=None, stats=None):
   pairs = len(family)
   if pairs == 1:
     pair = family[0]
-    if args.msa:
+    if output == 'msa':
       print ('{bar}\tCONSENSUS\t{seq1}\n'
              '{bar}\t{name1}\t{seq1}\n'
              '{bar}\tCONSENSUS\t{seq2}\n'
              '{bar}\t{name2}\t{seq2}').format(bar=barcode, **pair)
-    else:
+    elif output == 'consensus':
       print '>'+barcode+'.1:1'
       print pair['seq1']
       print '>'+barcode+'.2:1'
       print pair['seq2']
   else:
-    output = 'consensus'
-    if args.msa:
-      output = 'msa'
-    align_and_cons(family, barcode, 1, output=output)
-    align_and_cons(family, barcode, 2, output=output)
+    align_and_cons(family, barcode, 1, output, qual_thres=qual_thres)
+    align_and_cons(family, barcode, 2, output, qual_thres=qual_thres)
   end = time.time()
   elapsed = end - start
   logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
@@ -244,7 +261,7 @@ def process_family(family, barcode, order, args, workers=None, stats=None):
   return
 
 
-def align_and_cons(family, barcode, mate, output='consensus'):
+def align_and_cons(family, barcode, mate, output, qual_thres=' '):
   """Do the bioinformatic work: make the multiple sequence alignment and consensus
   sequence.
   "mate" is "1" or "2" and determines which read in the pair to process.
@@ -257,7 +274,10 @@ def align_and_cons(family, barcode, mate, output='consensus'):
     logging.warning('Error aligning family {} (read {}).'.format(barcode, mate))
     return
   align = read_fasta(align_raw, is_file=False)
-  cons = consensus.get_consensus([read['seq'] for read in align])
+  seqs = [read['seq'] for read in align]
+  quals_raw = [pair['qual'+mate] for pair in family]
+  quals = seqtools.transfer_gaps_multi(quals_raw, seqs, gap_char_out=' ')
+  cons = consensus.get_consensus(seqs, quals, qual_thres=qual_thres)
   if output == 'consensus' and cons is not None:
     print '>{}.{}:{}'.format(barcode, mate, len(family))
     print cons

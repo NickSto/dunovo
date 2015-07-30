@@ -84,6 +84,7 @@ function all {
   sscs
   sscs_r1
   sscs_p3
+  sscs_qual
   stats_diffs
 }
 
@@ -104,6 +105,12 @@ function sscs_p3 {
   echo -e "\tsscs.py -p 3 ::: families.in.tsv:"
   python "$dirname/../sscs.py" -p 3 "$dirname/families.in.tsv" | paste - - | sort \
     | diff -s - <(cat "$dirname/families.out.tsv" | paste - - | sort)
+}
+
+# sscs.py quality score consideration
+function sscs_qual {
+  echo -e "\tsscs.py ::: qual.in.tsv:"
+  python "$dirname/../sscs.py" -q 20 "$dirname/qual.in.tsv" | diff -s - "$dirname/qual.out.fa"
 }
 
 function stats_diffs {
