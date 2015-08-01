@@ -7,11 +7,15 @@ consensus.get_consensus.restype = ctypes.c_char_p
 
 
 # N.B.: The quality scores must be aligned with their accompanying sequences.
-def get_consensus(align, quals=(), cons_thres=-1.0, qual_thres=' '):
+def get_consensus(align, quals=[], cons_thres=-1.0, qual_thres=' ', gapped=False):
   cons_thres_c = ctypes.c_double(cons_thres)
   qual_thres_c = ctypes.c_char(qual_thres)
   n_seqs = len(align)
-  assert quals is None or len(quals) == n_seqs, 'Different number of sequences and quals.'
+  if gapped:
+    gapped_c = 1
+  else:
+    gapped_c = 0
+  assert not quals or len(quals) == n_seqs, 'Different number of sequences and quals.'
   seq_len = None
   for seq in (align + quals):
     if seq_len is None:
@@ -26,4 +30,5 @@ def get_consensus(align, quals=(), cons_thres=-1.0, qual_thres=' '):
     quals_c[i] = ctypes.c_char_p(qual)
   if not quals:
     quals_c = 0
-  return consensus.get_consensus(align_c, quals_c, n_seqs, seq_len, cons_thres_c, qual_thres_c)
+  return consensus.get_consensus(align_c, quals_c, n_seqs, seq_len, cons_thres_c, qual_thres_c,
+                                 gapped_c)

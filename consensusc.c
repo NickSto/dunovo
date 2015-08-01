@@ -20,7 +20,7 @@ void print_votes(char *consensus, int *votes[], int seq_len);
 char *rm_gaps(char *consensus, int cons_len);
 char *build_consensus(int *votes[], int seq_len, double thres);
 char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, double thres,
-                    char qual_thres);
+                    char qual_thres, int gapped);
 
 
 // Tally the different bases at each position in an alignment.
@@ -69,7 +69,8 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
   for (i = 0; i < n_seqs; i++) {
     for (j = 0; j < seq_len; j++) {
       // Don't count bases whose quality is less than the threshold. Gaps are always counted.
-      //TODO: What to use as the quality for gaps?
+      //TODO: What to use as the quality for gaps? Currently gaps are effectively always considered
+      //      the highest quality, biasing toward gaps.
       if (align[i][j] != '-' && quals[i][j] < thres) {
         continue;
       }
@@ -239,7 +240,7 @@ char *build_consensus(int *votes[], int seq_len, double thres) {
 // Give 0 as "quals" to not use quality scores, and -1.0 as "cons_thres" to use the default
 // consensus threshold when evaluating base votes.
 char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, double cons_thres,
-                    char qual_thres) {
+                    char qual_thres, int gapped) {
   if (cons_thres == -1.0) {
     cons_thres = THRES_DEFAULT;
   }
@@ -250,7 +251,12 @@ char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, doubl
     votes = get_votes_qual(align, quals, n_seqs, seq_len, qual_thres);
   }
   char *consensus_gapped = build_consensus(votes, seq_len, cons_thres);
-  char *consensus = rm_gaps(consensus_gapped, seq_len);
+  char *consensus;
+  if (gapped) {
+    consensus = consensus_gapped;
+  } else {
+    consensus = rm_gaps(consensus_gapped, seq_len);
+  }
   free_votes(votes, seq_len);
   return consensus;
 }
