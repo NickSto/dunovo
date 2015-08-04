@@ -9,6 +9,7 @@ import argparse
 import subprocess
 import collections
 import distutils.spawn
+import seqtools
 
 REQUIRED_COMMANDS = ['mafft']
 OPT_DEFAULTS = {'processes':1}
@@ -178,6 +179,7 @@ def delete_tempfiles(workers):
 
 def process_duplex(duplex, barcode, workers=None, processes=1, stats=None):
   # Are we the controller process or a worker?
+  stats['families'] += 1
   if processes > 1:
     i = stats['families'] % len(workers)
     worker = workers[i]
@@ -198,20 +200,38 @@ def process_duplex(duplex, barcode, workers=None, processes=1, stats=None):
     raise AssertionError('Error: More than 2 orders in duplex {}: {}'.format(barcode, orders))
   for mate, order in combos:
     family = duplex[order]
-    stats['families'] += 1
-    start = time.time()
-    align = make_msa(family, mate)
-    if align is None:
+    alignment = align_family(family, mate, stats)
+    if alignment is None:
       logging.warning('Error aligning family {}/{} (read {}).'.format(barcode, order, mate))
     else:
-      print_msa(align, barcode, order, mate)
-    elapsed = time.time() - start
-    pairs = len(family)
-    logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
-    if pairs > 1:
-      stats['time'] += elapsed
-      stats['pairs'] += pairs
-      stats['runs'] += 1
+      print_msa(alignment, barcode, order, mate)
+
+
+def align_family(family, mate, stats):
+  """Do a multiple sequence alignment of the reads in a family and their quality scores."""
+  mate = str(mate)
+  assert mate == '1' or mate == '2'
+  start = time.time()
+  # Do the multiple sequence alignment.
+  seq_alignment = make_msa(family, mate)
+  if seq_alignment is None:
+    return None
+  # Transfer the alignment to the quality scores.
+  seqs = [read['seq'] for read in seq_alignment]
+  quals_raw = [pair['qual'+mate] for pair in family]
+  qual_alignment = seqtools.transfer_gaps_multi(quals_raw, seqs, gap_char_out=' ')
+  # Package them up in the output data structure.
+  alignment = []
+  for aligned_seq, aligned_qual in zip(seq_alignment, qual_alignment):
+    alignment.append({'name':aligned_seq['name'], 'seq':aligned_seq['seq'], 'qual':aligned_qual})
+  elapsed = time.time() - start
+  pairs = len(family)
+  logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
+  if pairs > 1:
+    stats['time'] += elapsed
+    stats['pairs'] += pairs
+    stats['runs'] += 1
+  return alignment
 
 
 def make_msa(family, mate):
@@ -272,7 +292,7 @@ def read_fasta(fasta, is_file=True, upper=False):
 
 def print_msa(align, barcode, order, mate, outfile=sys.stdout):
   for sequence in align:
-    outfile.write('{bar}\t{order}\t{mate}\t{name}\t{seq}\n'
+    outfile.write('{bar}\t{order}\t{mate}\t{name}\t{seq}\t{qual}\n'
                   .format(bar=barcode, order=order, mate=mate, **sequence))
 
 
