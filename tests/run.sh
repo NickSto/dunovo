@@ -81,11 +81,18 @@ initial_declarations=$(declare -F)
 
 # Do all tests.
 function all {
+  align
   sscs
   sscs_r1
   sscs_p3
   sscs_qual
   stats_diffs
+}
+
+# align_families.py
+function align {
+  echo -e "\talign_families.py ::: families.duplex.in.tsv:"
+  python "$dirname/../align_families.py" "$dirname/families.duplex.in.tsv" | diff -s - "$dirname/families.duplex.out.tsv"
 }
 
 # sscs.py defaults
