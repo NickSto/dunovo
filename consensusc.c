@@ -4,23 +4,39 @@
 #include <ctype.h>
 #include <limits.h>
 
-// N.B. This defines the valid bases, but it's also effectively defined in the switch in
-// get_votes_simple()
+// N.B. This defines the valid bases, but it's also effectively defined in the switches in
+// get_votes_simple(), get_votes_qual(), and get_base_prime(), and in the constant IUPAC_BASES.
 #define N_BASES 6
 const char *BASES = "ACGTN-";
+/* A  C   G   T   N   -     A: 2    Compute IUPAC ambiguous base character by representing each base
+A  4  6  10  14  22  26     C: 3    with a prime and multiplying. Then use a lookup table (an array
+C     9  15  21  33  39     G: 5    where the index is the product of the two primes).
+G        25  35  55  65     T: 7
+T            49  77  91     N: 11
+N               121 143     -: 13    1         2         3         4         5         6         7
+-                   169    01234567890123456789012345678901234567890123456789012345678901234567890*/
+const char *IUPAC_BASES = "N...A.M..CR...WS.....YN..GN......N.K...N.........T.....N.........N....."
+//                                   8         9        10        11        12        13        14
+                           "......N.............N.............................N..................."
+//                                  15        16        17
+                           "..N.........................-";
 #define THRES_DEFAULT 0.5
 
 int **get_votes_simple(char *align[], int n_seqs, int seq_len);
-double **get_freqs(int *votes[], int seq_len);
+int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char thres);
 int **init_votes(int seq_len);
 void free_votes(int *votes[], int seq_len);
-double **init_freqs(int seq_len);
-void free_freqs(double *freqs[], int seq_len);
 void print_votes(char *consensus, int *votes[], int seq_len);
 char *rm_gaps(char *consensus, int cons_len);
 char *build_consensus(int *votes[], int seq_len, double thres);
+char *build_consensus_duplex(int *votes1[], int *votes2[], int seq_len, double thres);
+char *build_consensus_duplex_simple(char *cons1, char *cons2, int gapped);
+int get_base_prime(char base);
 char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, double thres,
                     char qual_thres, int gapped);
+char *get_consensus_duplex(char *align1[], char *align2[], char *quals1[], char *quals2[],
+                           int n_seqs1, int n_seqs2, int seq_len, double cons_thres,
+                           char qual_thres, int gapped, char *method);
 
 
 // Tally the different bases at each position in an alignment.
@@ -102,32 +118,6 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
 }
 
 
-// Convert the counts in the "votes" array returned by get_votes_simple() into base frequencies by
-// dividing by the total number of bases at each position.
-double **get_freqs(int *votes[], int seq_len) {
-  double **freqs = init_freqs(seq_len);
-
-  // This passes through the data twice, once to get the totals and once to calculate the freqs.
-  /*TODO: One of these passes could be eliminated by either getting the totals in get_votes_simple()
-   *      (but that would require breaking the separation btwn these functions) or by always having
-   *      the total be equal to the number of sequences (only not true currently when a base isn't
-   *      one of "ACGTN-").
-   */
-  int i, j;
-  for (i = 0; i < seq_len; i++) {
-    int total = 0;
-    for (j = 0; j < N_BASES; j++) {
-      total += votes[i][j];
-    }
-    for (j = 0; j < N_BASES; j++) {
-      freqs[i][j] = votes[i][j]/total;
-    }
-  }
-
-  return freqs;
-}
-
-
 int **init_votes(int seq_len) {
   int **votes = malloc(sizeof(int *) * seq_len);
   int i, j;
@@ -147,25 +137,6 @@ void free_votes(int *votes[], int seq_len) {
     free(votes[i]);
   }
   free(votes);
-}
-
-
-double **init_freqs(int seq_len) {
-  double **freqs = malloc(sizeof(double *) * seq_len);
-  int i;
-  for (i = 0; i < seq_len; i++) {
-    freqs[i] = malloc(sizeof(double) * N_BASES);
-  }
-  return freqs;
-}
-
-
-void free_freqs(double *freqs[], int seq_len) {
-  int i;
-  for (i = 0; i < seq_len; i++) {
-    free(freqs[i]);
-  }
-  free(freqs);
 }
 
 
@@ -236,6 +207,109 @@ char *build_consensus(int *votes[], int seq_len, double thres) {
 }
 
 
+// Build a consensus sequence from two alignments by weighting each equally and considering only
+// the frequency of each base in each alignment.
+char *build_consensus_duplex(int *votes1[], int *votes2[], int seq_len, double thres) {
+  char *consensus = malloc(sizeof(char) * seq_len + 1);
+
+  int i, j;
+  for (i = 0; i < seq_len; i++) {
+    // Sum the total votes at this position.
+    /*TODO: This does an extra loop through the votes to get the total so it can calculate actual
+     *      frequencies in the second pass. Technically, this information could be gathered when
+     *      originally tallying the votes in the get_votes functions. Or, the total could be assumed
+     *      to be n_seqs if every base always contributes a vote (even when it's not in "ACGTN-").
+     */
+    int total1 = 0;
+    for (j = 0; j < N_BASES; j++) {
+      total1 += votes1[i][j];
+    }
+    int total2 = 0;
+    for (j = 0; j < N_BASES; j++) {
+      total2 += votes2[i][j];
+    }
+    double max_freq = 0.0;
+    char max_base = 'N';
+    for (j = 0; j < N_BASES; j++) {
+      // Get the frequency of each base.
+      double freq1;
+      if (total1 > 0) {
+        freq1 = (double)votes1[i][j]/total1;
+      }
+      double freq2;
+      if (total2 > 0) {
+        freq2 = (double)votes2[i][j]/total2;
+      }
+      // frequency of the base = average of frequencies in the two sequences
+      double avg_freq;
+      if (total1 == 0 && total2 == 0) {
+        avg_freq = -1.0;
+      } else if (total1 == 0) {
+        avg_freq = freq2;
+      } else if (total2 == 0) {
+        avg_freq = freq1;
+      } else {
+        avg_freq = (freq1 + freq2) / 2;
+      }
+      // Track the highest frequency seen.
+      if (avg_freq > max_freq) {
+        max_freq = avg_freq;
+        max_base = BASES[j];
+      }
+    }
+    if (max_freq > thres) {
+      consensus[i] = max_base;
+    } else {
+      consensus[i] = 'N';
+    }
+  }
+
+  consensus[seq_len] = '\0';
+  return consensus;
+}
+
+
+// "cons1" and "cons2" must be null-terminated strings of equal lengths.
+char *build_consensus_duplex_simple(char *cons1, char *cons2, int gapped) {
+  int seq_len = strlen(cons1);
+  char *cons = malloc(sizeof(char) * seq_len + 1);
+  int i = 0;
+  int base_prime1, base_prime2;
+  while (cons1[i] != '\0' && cons2[i] != '\0') {
+    base_prime1 = get_base_prime(cons1[i]);
+    base_prime2 = get_base_prime(cons2[i]);
+    cons[i] = IUPAC_BASES[base_prime1*base_prime2];
+    i++;
+  }
+  cons[seq_len] = '\0';
+  if (gapped) {
+    return cons;
+  } else {
+    return rm_gaps(cons, seq_len);
+  }
+}
+
+
+int get_base_prime(char base) {
+  switch (base) {
+    case 'A':
+      return 2;
+    case 'C':
+      return 3;
+    case 'G':
+      return 5;
+    case 'T':
+      return 7;
+    case 'N':
+      return 11;
+    case '-':
+      return 13;
+    default:
+      return 0;
+  }
+}
+
+
 // Convenience function to create a consensus in one step.
 // Give 0 as "quals" to not use quality scores, and -1.0 as "cons_thres" to use the default
 // consensus threshold when evaluating base votes.
@@ -258,6 +332,43 @@ char *get_consensus(char *align[], char *quals[], int n_seqs, int seq_len, doubl
     consensus = rm_gaps(consensus_gapped, seq_len);
   }
   free_votes(votes, seq_len);
+  return consensus;
+}
+
+
+char *get_consensus_duplex(char *align1[], char *align2[], char *quals1[], char *quals2[],
+                           int n_seqs1, int n_seqs2, int seq_len, double cons_thres,
+                           char qual_thres, int gapped, char *method) {
+  if (cons_thres == -1.0) {
+    cons_thres = THRES_DEFAULT;
+  }
+  int **votes1;
+  int **votes2;
+  if (quals1 == 0 || quals2 == 0) {
+    votes1 = get_votes_simple(align1, n_seqs1, seq_len);
+    votes2 = get_votes_simple(align2, n_seqs2, seq_len);
+  } else {
+    votes1 = get_votes_qual(align1, quals1, n_seqs1, seq_len, qual_thres);
+    votes2 = get_votes_qual(align2, quals2, n_seqs2, seq_len, qual_thres);
+  }
+  char *consensus_gapped;
+  if (!strncmp(method, "freq", 4)) {
+    consensus_gapped = build_consensus_duplex(votes1, votes2, seq_len, cons_thres);
+  } else if (!strncmp(method, "iupac", 5)) {
+    char *cons1 = build_consensus(votes1, seq_len, cons_thres);
+    char *cons2 = build_consensus(votes2, seq_len, cons_thres);
+    consensus_gapped = build_consensus_duplex_simple(cons1, cons2, 1);
+  } else {
+    return "";
+  }
+  char *consensus;
+  if (gapped) {
+    consensus = consensus_gapped;
+  } else {
+    consensus = rm_gaps(consensus_gapped, seq_len);
+  }
+  free_votes(votes1, seq_len);
+  free_votes(votes2, seq_len);
   return consensus;
 }
 
