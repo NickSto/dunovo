@@ -7,10 +7,13 @@ import logging
 import tempfile
 import argparse
 import subprocess
+import collections
 import distutils.spawn
 import consensus
-import seqtools
+import swalign
 
+SANGER_START = 33
+SOLEXA_START = 64
 REQUIRED_COMMANDS = ['mafft']
 OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
@@ -26,24 +29,21 @@ def main(argv):
   parser.set_defaults(**OPT_DEFAULTS)
 
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
-    help='The input reads, sorted into families. One line per read pair, 8 tab-delimited columns: '
-         '1. canonical barcode, 2. barcode order ("ab" for alpha+beta, "ba" for beta-alpha) 3. '
-         'read 1 name, 4. read 1 sequence, 5. read 1 quality scores, 6. read 2 name, 7. read 2 '
-         'sequence, 8. read 2 quality scores.')
+    help='The output of align_families.py. 6 columns: 1. (canonical) barcode. 2. order ("ab" or '
+         '"ba"). 3. mate ("1" or "2"). 4. read name. 5. aligned sequence. 6. aligned quality '
+         'scores.')
   parser.add_argument('-r', '--min-reads', type=int,
-    help='The minimum number of reads (from each strand) required to form a family. Families with '
-         'fewer reads will be skipped. Default: %(default)s.')
+    help='The minimum number of reads (from each strand) required to form a single-strand '
+         'consensus. Strands with fewer reads will be skipped. Default: %(default)s.')
   parser.add_argument('-q', '--qual', type=int,
     help='Base quality threshold. Bases below this quality will not be counted. '
          'Default: %(default)s.')
-  parser.add_argument('-F', '--qual-format', choices=('sanger',),
-    help='FASTQ quality score format. Sanger scores are assumed to begin at \'!\' (33). Default: '
-         '%(default)s.')
-  parser.add_argument('-m', '--msa', action='store_true',
-    help='Print the multiple sequence alignment as well as the consensus. Instead of printing '
-         'FASTA, it will print a tab-delimited format with 3 columns: 1. barcode, 2. read name, 3. '
-         'aligned read sequence. One line will be the consensus sequence, named "CONSENSUS". One '
-         'alignment and consensus will be printed for each read in the pair.')
+  parser.add_argument('-F', '--qual-format', choices=('sanger', 'solexa'),
+    help='FASTQ quality score format. Sanger scores are assumed to begin at \'{}\' ({}). Default: '
+         '%(default)s.'.format(SANGER_START, chr(SANGER_START)))
+  parser.add_argument('--incl-sscs', action='store_true',
+    help='When outputting duplex consensus sequences, include reads without a full duplex (missing '
+         'one strand). The result will just be the single-strand consensus of the remaining read.')
   parser.add_argument('-s', '--stats-file',
     help='Print statistics on the run to this file. Use "-" to print to stderr.')
   parser.add_argument('-p', '--processes', type=int,
@@ -58,13 +58,12 @@ def main(argv):
   # Make dict of process_family() parameters that don't change between families.
   static = {}
   static['processes'] = args.processes
+  static['incl_sscs'] = args.incl_sscs
   static['min_reads'] = args.min_reads
-  if args.msa:
-    static['output'] = 'msa'
-  else:
-    static['output'] = 'consensus'
   if args.qual_format == 'sanger':
-    static['qual_thres'] = chr(args.qual + 33)
+    static['qual_thres'] = chr(args.qual + SANGER_START)
+  elif args.qual_format == 'solexa':
+    static['qual_thres'] = chr(args.qual + SOLEXA_START)
   else:
     fail('Error: unrecognized --qual-format.')
 
@@ -97,28 +96,42 @@ def main(argv):
   if args.processes > 1:
     workers = open_workers(args.processes, args)
 
-  stats = {'time':0, 'pairs':0, 'runs':0, 'families':0}
-  all_pairs = 0
+  stats = {'time':0, 'reads':0, 'runs':0, 'families':0}
+  all_reads = 0
+  duplex = collections.OrderedDict()
   family = []
   barcode = None
   order = None
+  mate = None
   for line in infile:
     fields = line.rstrip('\r\n').split('\t')
-    if len(fields) != 8:
+    if len(fields) != 6:
       continue
-    (this_barcode, this_order, name1, seq1, qual1, name2, seq2, qual2) = fields
-    # If the barcode has changed, we're in a new family.
+    (this_barcode, this_order, this_mate, name, seq, qual) = fields
+    this_mate = int(this_mate)
+    # If the barcode or order has changed, we're in a new single-stranded family.
     # Process the reads we've previously gathered as one family and start a new family.
-    if this_barcode != barcode or this_order != order:
-      process_family(family, barcode, order, workers=workers, stats=stats, **static)
+    if this_barcode != barcode or this_order != order or this_mate != mate:
+      duplex[(order, mate)] = family
+      # We're at the end of the duplex pair if the barcode changes or if the order changes without
+      # the mate changing, or vice versa (the second read in each duplex comes when the barcode
+      # stays the same while both the order and mate switch). Process the duplex and start
+      # a new one. If the barcode is the same, we're in the same duplex, but we've switched strands.
+      if this_barcode != barcode or not (this_order != order and this_mate != mate):
+        # sys.stderr.write('New duplex:  {}, {}, {}\n'.format(this_barcode, this_order, this_mate))
+        process_duplex(duplex, barcode, workers=workers, stats=stats, **static)
+        duplex = collections.OrderedDict()
+      # else:
+      #   sys.stderr.write('Same duplex: {}, {}, {}\n'.format(this_barcode, this_order, this_mate))
       barcode = this_barcode
       order = this_order
+      mate = this_mate
       family = []
-    pair = {'name1': name1, 'seq1':seq1, 'qual1':qual1, 'name2':name2, 'seq2':seq2, 'qual2':qual2}
-    family.append(pair)
-    all_pairs += 1
+    read = {'name': name, 'seq':seq, 'qual':qual}
+    family.append(read)
+    all_reads += 1
   # Process the last family.
-  process_family(family, barcode, order, workers=workers, stats=stats, **static)
+  process_duplex(duplex, barcode, workers=workers, stats=stats, **static)
 
   if args.processes > 1:
     close_workers(workers)
@@ -132,11 +145,11 @@ def main(argv):
     return
 
   # Final stats on the run.
-  logging.info('Processed {} read pairs and {} multi-pair families.'
-               .format(all_pairs, stats['runs']))
-  per_pair = stats['time'] / stats['pairs']
+  logging.info('Processed {} reads and {} duplexes.'
+               .format(all_reads, stats['runs']))
+  per_read = stats['time'] / stats['reads']
   per_run = stats['time'] / stats['runs']
-  logging.info('{:0.3f}s per pair, {:0.3f}s per run.'.format(per_pair, per_run))
+  logging.info('{:0.3f}s per read, {:0.3f}s per run.'.format(per_read, per_run))
 
 
 def open_workers(num_workers, args):
@@ -164,8 +177,8 @@ def open_workers(num_workers, args):
   return workers
 
 
-def gather_args(args, infile, excluded_flags=('-S', '--slurm'),
-                excluded_args=('-p', '--processes', '-s', '--stats-file')):
+def gather_args(args, infile, excluded_flags={'-S', '--slurm'},
+                excluded_args={'-p', '--processes', '-s', '--stats-file'}):
   """Take the full list of command-line arguments and return only the ones which
   should be passed to worker processes.
   Excludes the 0th argument (the command name), the input filename ("infile"), all
@@ -188,11 +201,11 @@ def gather_args(args, infile, excluded_flags=('-S', '--slurm'),
   return out_args
 
 
-def delegate(worker, family, barcode, order):
+def delegate(worker, duplex, barcode):
   """Send a family to a worker process."""
-  for pair in family:
-    line = '{}\t{}\t{name1}\t{seq1}\t{qual1}\t{name2}\t{seq2}\t{qual2}\n'.format(barcode, order,
-                                                                                 **pair)
+  for (order, mate), family in duplex.items():
+    for read in family:
+      line = '{}\t{}\t{}\t{name}\t{seq}\t{qual}\n'.format(barcode, order, mate, **read)
     worker['proc'].stdin.write(line)
 
 
@@ -217,95 +230,55 @@ def delete_tempfiles(workers):
       os.remove(worker['stats'])
 
 
-def process_family(family, barcode, order, workers=None, stats=None, output='consensus',
-                   processes=1, min_reads=1, qual_thres=' '):
-  # Pass if family doesn't contain minimum # of reads.
-  if len(family) < min_reads:
-    return
+def process_duplex(duplex, barcode, workers=None, stats=None, incl_sscs=False, processes=1,
+                   min_reads=1, qual_thres=' '):
   stats['families'] += 1
   # Are we the controller process or a worker?
   if processes > 1:
     i = stats['families'] % len(workers)
     worker = workers[i]
-    delegate(worker, family, barcode, order)
+    delegate(worker, duplex, barcode)
     return
   # We're a worker. Actually process the family.
   start = time.time()
-  # If order is beta+alpha, reverse it to get the "true" barcode (alpha+beta).
-  if order == 'ba':
-    half = len(barcode)//2
-    barcode = barcode[half:] + barcode[:half]
-  pairs = len(family)
-  if pairs == 1:
-    pair = family[0]
-    if output == 'msa':
-      print ('{bar}\tCONSENSUS\t{seq1}\n'
-             '{bar}\t{name1}\t{seq1}\n'
-             '{bar}\tCONSENSUS\t{seq2}\n'
-             '{bar}\t{name2}\t{seq2}').format(bar=barcode, **pair)
-    elif output == 'consensus':
-      print '>'+barcode+'.1:1'
-      print pair['seq1']
-      print '>'+barcode+'.2:1'
-      print pair['seq2']
-  else:
-    align_and_cons(family, barcode, 1, output, qual_thres=qual_thres)
-    align_and_cons(family, barcode, 2, output, qual_thres=qual_thres)
-  end = time.time()
-  elapsed = end - start
-  logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
-  if stats and pairs > 1:
+  consensi = []
+  reads_per_strand = []
+  duplex_mate = None
+  for (order, mate), family in duplex.items():
+    reads = len(family)
+    if reads < min_reads:
+      continue
+    # The mate number for the duplex consensus. It's arbitrary, but all that matters is that the
+    # two mates have different numbers. This system ensures that:
+    # Mate 1 is from the consensus of ab/1 and ba/2 families, while mate 2 is from ba/1 and ab/2.
+    if (order == 'ab' and mate == 1) or (order == 'ba' and mate == 2):
+      duplex_mate = 1
+    else:
+      duplex_mate = 2
+    seqs = [read['seq'] for read in family]
+    quals = [read['qual'] for read in family]
+    consensi.append(consensus.get_consensus(seqs, quals, qual_thres=qual_thres))
+    reads_per_strand.append(reads)
+  assert len(consensi) <= 2
+  if len(consensi) == 1 and incl_sscs:
+    print_duplex(consensi[0], barcode, duplex_mate, reads_per_strand)
+  elif len(consensi) == 2:
+    align = swalign.smith_waterman(*consensi)
+    #TODO: log error & return if len(align.target) != len(align.query)
+    cons = consensus.build_consensus_duplex_simple(align.target, align.query)
+    print_duplex(cons, barcode, duplex_mate, reads_per_strand)
+  elapsed = time.time() - start
+  logging.info('{} sec for {} reads.'.format(elapsed, sum(reads_per_strand)))
+  if stats and len(consensi) > 0:
     stats['time'] += elapsed
-    stats['pairs'] += pairs
+    stats['reads'] += sum(reads_per_strand)
     stats['runs'] += 1
-  return
 
 
-def align_and_cons(family, barcode, mate, output, qual_thres=' '):
-  """Do the bioinformatic work: make the multiple sequence alignment and consensus
-  sequence.
-  "mate" is "1" or "2" and determines which read in the pair to process.
-  "output" is "consensus" to print the consensus sequence in FASTA format, or
-    "msa" to print the full multiple sequence alignment in tab-delimited format."""
-  mate = str(mate)
-  assert mate == '1' or mate == '2'
-  align_raw = make_msa(family, mate)
-  if align_raw is None:
-    logging.warning('Error aligning family {} (read {}).'.format(barcode, mate))
-    return
-  align = read_fasta(align_raw, is_file=False)
-  seqs = [read['seq'] for read in align]
-  quals_raw = [pair['qual'+mate] for pair in family]
-  quals = seqtools.transfer_gaps_multi(quals_raw, seqs, gap_char_out=' ')
-  cons = consensus.get_consensus(seqs, quals, qual_thres=qual_thres)
-  if output == 'consensus' and cons is not None:
-    print '>{}.{}:{}'.format(barcode, mate, len(family))
-    print cons
-  elif output == 'msa':
-    print '{}\t{}\t{}'.format(barcode, 'CONSENSUS', cons)
-    for sequence in align:
-      print '{}\t{}\t{}'.format(barcode, sequence['name'], sequence['seq'])
-
-
-def make_msa(family, mate):
-  """Perform a multiple sequence alignment on a set of sequences.
-  Uses MAFFT."""
-  assert mate == '1' or mate == '2'
-  #TODO: Replace with tempfile.mkstemp()?
-  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as family_file:
-    for pair in family:
-      name = pair['name'+mate]
-      seq = pair['seq'+mate]
-      family_file.write('>'+name+'\n')
-      family_file.write(seq+'\n')
-  with open(os.devnull, 'w') as devnull:
-    try:
-      command = ['mafft', '--nuc', '--quiet', family_file.name]
-      output = subprocess.check_output(command, stderr=devnull)
-    except (OSError, subprocess.CalledProcessError):
-      return None
-  os.remove(family_file.name)
-  return output
+def print_duplex(cons, barcode, mate, reads_per_strand, outfile=sys.stdout):
+  header = '>{bar}.{mate} {reads}'.format(bar=barcode, mate=mate, reads='/'.join(map(str, reads_per_strand)))
+  outfile.write(header+'\n')
+  outfile.write(cons+'\n')
 
 
 def read_fasta(fasta, is_file=True):

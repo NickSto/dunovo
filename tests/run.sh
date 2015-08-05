@@ -92,13 +92,14 @@ function all {
 # align_families.py
 function align {
   echo -e "\talign_families.py ::: families.duplex.in.tsv:"
-  python "$dirname/../align_families.py" "$dirname/families.duplex.in.tsv" | diff -s - "$dirname/families.duplex.out.tsv"
+  python "$dirname/../align_families.py" "$dirname/families.duplex.in.tsv" | diff -s - "$dirname/families.duplex.msa.tsv"
 }
 
-# sscs.py defaults
+# sscs.py defaults on toy data
 function sscs {
   echo -e "\tsscs.py ::: families.in.tsv:"
-  python "$dirname/../sscs.py" "$dirname/families.in.tsv" | diff -s - "$dirname/families.out.tsv"
+  python "$dirname/../sscs.py" "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.fa"
+  python "$dirname/../sscs.py" --incl-sscs "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.incl-sscs.fa"
 }
 
 # sscs.py no minimum number of reads per family
