@@ -153,7 +153,7 @@ def delegate(worker, duplex, barcode):
     for pair in family:
       line = '{}\t{}\t{name1}\t{seq1}\t{qual1}\t{name2}\t{seq2}\t{qual2}\n'.format(barcode, order,
                                                                                    **pair)
-    worker['proc'].stdin.write(line)
+      worker['proc'].stdin.write(line)
 
 
 def close_workers(workers):
