@@ -26,6 +26,9 @@ const char *IUPAC_BASES = "N...A.M..CR...WS.....YN..GN......N.K...N.........T...
 
 int **get_votes_simple(char *align[], int n_seqs, int seq_len);
 int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char thres);
+int init_gap_qual_window(int *window, char *quals, int seq_len);
+char get_gap_qual(int *window);
+int push_qual(int *window, int win_edge, char *quals, int seq_len);
 int **init_votes(int seq_len);
 void free_votes(int *votes[], int seq_len);
 void print_votes(char *consensus, int *votes[], int seq_len);
@@ -81,15 +84,24 @@ int **get_votes_simple(char *align[], int n_seqs, int seq_len) {
 
 int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char thres) {
   int **votes = init_votes(seq_len);
+  int *window = malloc(sizeof(int) * WIN_LEN * 2);
+  int win_edge;
 
   // Tally votes for each base.
+  char qual;
   int i, j;
   for (i = 0; i < n_seqs; i++) {
+    win_edge = init_gap_qual_window(window, quals[i], seq_len);
     for (j = 0; j < seq_len; j++) {
-      // Don't count bases whose quality is less than the threshold. Gaps are always counted.
-      //TODO: What to use as the quality for gaps? Currently gaps are effectively always considered
-      //      the highest quality, biasing toward gaps.
-      if (align[i][j] != '-' && quals[i][j] < thres) {
+      // Figure out the quality score of the base (or gap).
+      if (align[i][j] == '-') {
+        qual = get_gap_qual(window);
+      } else {
+        win_edge = push_qual(window, win_edge, quals[i], seq_len);
+        qual = quals[i][j];
+      }
+      // Don't count bases whose quality is less than the threshold.
+      if (qual < thres) {
         continue;
       }
       // N.B.: Could write this without hardcoded literals, but it's about 40% slower.
@@ -116,6 +128,7 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
     }
   }
 
+  free(window);
   return votes;
 }
 
@@ -192,7 +205,7 @@ int push_qual(int *window, int win_edge, char *quals, int seq_len) {
 }
 
 
-double get_gap_qual(int *window) {
+char get_gap_qual(int *window) {
   //TODO: Do a weighted average.
   int total = 0;
   int scores = 0;
@@ -204,9 +217,9 @@ double get_gap_qual(int *window) {
     }
   }
   if (scores > 0) {
-    return (double)total/scores;
+    return (char)(total/scores);
   } else {
-    return 0.0;
+    return '\0';
   }
 }
 
@@ -489,11 +502,11 @@ void get_gap_quals(char *quals) {
   print_window(window, win_edge);
 
   int i;
-  double gap_qual;
+  char gap_qual;
   for (i = 0; i < seq_len; i++) {
     if (quals[i] == GAP_CHAR) {
       gap_qual = get_gap_qual(window);
-      printf("gap %2d: %0.2f\n", i, gap_qual);
+      printf("gap %2d: %2d\n", i, gap_qual);
     } else {
       win_edge = push_qual(window, win_edge, quals, seq_len);
       print_window(window, win_edge);
