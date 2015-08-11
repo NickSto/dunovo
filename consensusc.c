@@ -22,6 +22,7 @@ const char *IUPAC_BASES = "N...A.M..CR...WS.....YN..GN......N.K...N.........T...
                            "..N.........................-";
 #define THRES_DEFAULT 0.5
 #define WIN_LEN 4
+#define GAP_CHAR ' '
 
 int **get_votes_simple(char *align[], int n_seqs, int seq_len);
 int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char thres);
@@ -119,79 +120,108 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
 }
 
 
-int *init_gap_qual_window(char *quals, int seq_len, int *win_edge) {
-  // This does the initial fill of the "window" array, adding the first WIN_LEN bases to the right
-  // side.
-  int *window = malloc(sizeof(int) * WIN_LEN * 2);
+/* Calculation of gap quality scores:
+ * "window" is an array of length 2*WIN_LEN, holding the quality scores of the non-gap bases WIN_LEN
+ * from the current one in both directions. When we're at the start or end, fill the slots beyond
+ * the edge of the sequence with -1 as a sentinel for "N/A". For example, after the 2nd base in the
+ * sequence, if WIN_LEN is 4 and there are no gaps yet, "window" should look something like this:
+ *   base coordinates         0  1   2  3  4  5
+ *   quality scores           =  9   A  >  E  B
+ *   array values     [-1|-1|28|24||32|29|36|33]
+ * Usage:
+ * Allocate "window" and call init_gap_qual_window() to initialize it by filling its right side with
+ * the first WIN_LEN non-gap quality scores in the sequence. It will also return "win_edge", which
+ * tracks the coordinate of the rightmost quality score in "window".
+ * Then, start traversing the array of quality scores. For each score, if it's a gap character, call
+ * get_gap_qual() to get the computed quality score at the gap. Otherwise, call push_qual() to add
+ * another quality score to the end of the window. This will keep the window filled with all non-gap
+ * quality scores, and each time you call get_gap_qual(), you should be at the gap between the two
+ * quality scores at the center of the window.
+ */
+
+// This does the initial fill of the window array, adding the first WIN_LEN bases to the right side.
+int init_gap_qual_window(int *window, char *quals, int seq_len) {
   // Fill left side with -1's (no quality information).
   int i;
   for (i = 0; i < WIN_LEN; i++) {
     window[i] = -1;
   }
-  // Fill right side with first WIN_LEN quality scores (or -1 if seq_len < WIN_LEN).
-  for (i = WIN_LEN; i < WIN_LEN*2; i++) {
-    if (i-WIN_LEN < seq_len) {
-      window[i] = quals[i-WIN_LEN];
-    } else {
+  // Fill right side with first WIN_LEN quality scores. Skip gaps, and if you run out of quality
+  // scores (if seq_len < WIN_LEN), fill the rest with -1. Leave win_edge at the last base we added.
+  i = WIN_LEN;
+  int win_edge = -1;
+  int quals_added = 0;
+  while (quals_added < WIN_LEN) {
+    win_edge++;
+    if (win_edge >= seq_len) {
+      win_edge = seq_len;
       window[i] = -1;
+      i++;
+      quals_added++;
+    } else if (quals[win_edge] != GAP_CHAR) {
+      window[i] = quals[win_edge];
+      i++;
+      quals_added++;
     }
   }
-  (*win_edge) = WIN_LEN - 1;
-  return window;
+  return win_edge;
 }
 
 
-int get_gap_qual(int *window, int *win_edge, int pos, char *quals, int seq_len, char gap_char) {
-  /* Implementation:
-   * "window" is an array of length 2*WIN_LEN, holding the quality scores of the bases WIN_LEN from
-   * from the current one in both directions. At an edge, when there is no base to fill a given slot
-   * in "window", -1 is a sentinel for "empty". For example, if we're at the 2nd base in the
-   * sequence ("pos" 1), and WIN_LEN is 4, "window" should look something like this:
-   *   base coordinates            0  2  3  4  5
-   *   array values     [-1|-1|-1|24|32|29|36|33]
-   * Each time the calling loop moves one base forward, call this function to add another quality
-   * value to the right side of the array, and shift the rest of the values left. At the same time,
-   * it will calculate a weighted average of the values, with the bases closest to the center (the
-   * base of interest) weighed highest.
-   */
+int push_qual(int *window, int win_edge, char *quals, int seq_len) {
   // Find the next quality score that's not a gap.
-  char next_qual = gap_char;
-  while (next_qual == gap_char) {
-    (*win_edge)++;
-    if ((*win_edge) < seq_len) {
-      next_qual = quals[(*win_edge)];
+  char next_qual = GAP_CHAR;
+  while (next_qual == GAP_CHAR) {
+    win_edge++;
+    if (win_edge < seq_len) {
+      next_qual = quals[win_edge];
     } else {
-      (*win_edge) = seq_len;
+      win_edge = seq_len;
       next_qual = -1;
     }
   }
-  // Shift all the quality scores left and average them.
-  //TODO: Do a weighted average.
-  int total = 0;
-  int scores = 0;
+  // Shift all the quality scores left add the new one.
   int last_qual;
   int i;
   for (i = WIN_LEN*2 - 1; i >= 0; i--) {
     last_qual = window[i];
     window[i] = next_qual;
     next_qual = last_qual;
+  }
+  return win_edge;
+}
+
+
+double get_gap_qual(int *window) {
+  //TODO: Do a weighted average.
+  int total = 0;
+  int scores = 0;
+  int i;
+  for (i = 0; i < WIN_LEN*2; i++) {
     if (window[i] != -1) {
       total += window[i];
       scores++;
     }
   }
-  return total/scores;
+  if (scores > 0) {
+    return (double)total/scores;
+  } else {
+    return 0.0;
+  }
 }
 
 
-void print_window(int *window) {
+void print_window(int *window, int win_edge) {
   printf("[");
   int i;
   for (i = 0; i < WIN_LEN*2; i++) {
-    if (i == WIN_LEN*2 - 1) {
-      printf("%2d]\n", window[i]);
+    printf("%c", window[i]);
+    if (i == WIN_LEN - 1) {
+      printf("||");
+    } else if (i == WIN_LEN*2 - 1) {
+      printf("] %-2d\n", win_edge);
     } else {
-      printf("%2d|", window[i]);
+      printf("|");
     }
   }
 }
@@ -452,6 +482,26 @@ char *get_consensus_duplex(char *align1[], char *align2[], char *quals1[], char 
 }
 
 
+void get_gap_quals(char *quals) {
+  int seq_len = strlen(quals);
+  int *window = malloc(sizeof(int) * WIN_LEN * 2);
+  int win_edge = init_gap_qual_window(window, quals, seq_len);
+  print_window(window, win_edge);
+
+  int i;
+  double gap_qual;
+  for (i = 0; i < seq_len; i++) {
+    if (quals[i] == GAP_CHAR) {
+      gap_qual = get_gap_qual(window);
+      printf("gap %2d: %0.2f\n", i, gap_qual);
+    } else {
+      win_edge = push_qual(window, win_edge, quals, seq_len);
+      print_window(window, win_edge);
+    }
+  }
+}
+
+
 int main(int argc, char *argv[]) {
   char **align = malloc(sizeof(char *) * (argc-1));
 
@@ -468,17 +518,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  char *quals = align[0];
-  seq_len = strlen(quals);
-  int *win_edge = malloc(sizeof(int));
-  int *window = init_gap_qual_window(quals, seq_len, win_edge);
-  print_window(window);
-  int gap_qual = get_gap_qual(window, win_edge, 0, quals, seq_len, ' ');
-  print_window(window);
-  printf("%d\n", gap_qual);
-  gap_qual = get_gap_qual(window, win_edge, 0, quals, seq_len, ' ');
-  print_window(window);
-  printf("%d\n", gap_qual);
+  get_gap_quals(align[0]);
   return 0;
 
   int **votes = get_votes_simple(align, argc-1, seq_len);
