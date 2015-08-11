@@ -152,7 +152,8 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
  * quality scores at the center of the window.
  */
 
-// This does the initial fill of the window array, adding the first WIN_LEN bases to the right side.
+// This does the initial fill of the window array, adding the first WIN_LEN bases to the right side
+// and filling the left side with -1's.
 int init_gap_qual_window(int *window, char *quals, int seq_len) {
   // Fill left side with -1's (no quality information).
   int i;
@@ -181,6 +182,7 @@ int init_gap_qual_window(int *window, char *quals, int seq_len) {
 }
 
 
+// Push the next non-gap quality score onto the right side of the window.
 int push_qual(int *window, int win_edge, char *quals, int seq_len) {
   // Find the next quality score that's not a gap.
   char next_qual = GAP_CHAR;
@@ -205,19 +207,28 @@ int push_qual(int *window, int win_edge, char *quals, int seq_len) {
 }
 
 
+// Compute the quality of the gap based on a weighted average of the quality scores in the window.
+// The scores near the center of the window are weighted higher than the ones further away.
 char get_gap_qual(int *window) {
-  //TODO: Do a weighted average.
-  int total = 0;
-  int scores = 0;
+  int score_sum = 0;
+  int weight_sum = 0;
+  int weight = 1;
   int i;
   for (i = 0; i < WIN_LEN*2; i++) {
     if (window[i] != -1) {
-      total += window[i];
-      scores++;
+      score_sum += window[i] * weight;
+      weight_sum += weight;
+    }
+    // Increase the weight until we get to the middle of the window (at WIN_LEN), then decrease it.
+    if (i < WIN_LEN - 1) {
+      weight++;
+    } else if (i > WIN_LEN - 1) {
+      weight--;
     }
   }
-  if (scores > 0) {
-    return (char)(total/scores);
+  if (weight_sum > 0) {
+    // Divide by the sum of the weights to get the final quality score.
+    return (char) (score_sum/weight_sum);
   } else {
     return '\0';
   }
