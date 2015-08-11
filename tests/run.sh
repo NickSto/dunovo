@@ -82,10 +82,10 @@ initial_declarations=$(declare -F)
 # Do all tests.
 function all {
   align
-  sscs
-  sscs_r1
-  sscs_p3
-  sscs_qual
+  duplex
+  duplex_r1
+  duplex_p3
+  duplex_qual
   stats_diffs
 }
 
@@ -95,30 +95,30 @@ function align {
   python "$dirname/../align_families.py" "$dirname/families.duplex.in.tsv" | diff -s - "$dirname/families.duplex.msa.tsv"
 }
 
-# sscs.py defaults on toy data
-function sscs {
-  echo -e "\tsscs.py ::: families.in.tsv:"
-  python "$dirname/../sscs.py" "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.fa"
-  python "$dirname/../sscs.py" --incl-sscs "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.incl-sscs.fa"
+# duplex.py defaults on toy data
+function duplex {
+  echo -e "\tduplex.py ::: families.in.tsv:"
+  python "$dirname/../duplex.py" "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.fa"
+  python "$dirname/../duplex.py" --incl-sscs "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.incl-sscs.fa"
 }
 
-# sscs.py no minimum number of reads per family
-function sscs_r1 {
-  echo -e "\tsscs.py -r 1 ::: families.in.tsv:"
-  python "$dirname/../sscs.py" -r 1 "$dirname/families.in.tsv" | diff -s - "$dirname/families-r1.out.tsv"
+# duplex.py no minimum number of reads per family
+function duplex_r1 {
+  echo -e "\tduplex.py -r 1 ::: families.in.tsv:"
+  python "$dirname/../duplex.py" -r 1 "$dirname/families.in.tsv" | diff -s - "$dirname/families-r1.out.tsv"
 }
 
-# sscs.py parallelized
-function sscs_p3 {
-  echo -e "\tsscs.py -p 3 ::: families.in.tsv:"
-  python "$dirname/../sscs.py" -p 3 "$dirname/families.in.tsv" | paste - - | sort \
+# duplex.py parallelized
+function duplex_p3 {
+  echo -e "\tduplex.py -p 3 ::: families.in.tsv:"
+  python "$dirname/../duplex.py" -p 3 "$dirname/families.in.tsv" | paste - - | sort \
     | diff -s - <(cat "$dirname/families.out.tsv" | paste - - | sort)
 }
 
-# sscs.py quality score consideration
-function sscs_qual {
-  echo -e "\tsscs.py ::: qual.in.tsv:"
-  python "$dirname/../sscs.py" -q 20 "$dirname/qual.in.tsv" | diff -s - "$dirname/qual.out.fa"
+# duplex.py quality score consideration
+function duplex_qual {
+  echo -e "\tduplex.py ::: qual.in.tsv:"
+  python "$dirname/../duplex.py" -q 20 "$dirname/qual.in.tsv" | diff -s - "$dirname/qual.out.fa"
 }
 
 function stats_diffs {

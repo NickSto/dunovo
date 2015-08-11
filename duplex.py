@@ -18,9 +18,12 @@ REQUIRED_COMMANDS = ['mafft']
 OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build consensus sequences from read families. Pipe sorted reads into stdin. Prints
-single-strand consensus sequences in FASTA to stdout. The sequence names are BARCODE.MATE.SEQS, e.g.
-"CTCAGATAACATACCTTATATGCA.1:7", where "BARCODE" is the input barcode, "MATE" is "1" for the first
-read in the pair and "2" for the second, and "SEQS" is the number of reads in the family."""
+duplex consensus sequences in FASTA to stdout. The sequence ids are BARCODE.MATE, e.g.
+"CTCAGATAACATACCTTATATGCA.1", where "BARCODE" is the input barcode, and "MATE" is "1" or "2" as an
+arbitrary designation of the two reads in the pair. The id is followed by the count of the number of
+reads in the two families (one from each strand) that make up the duplex, in the format
+READS1/READS2. If the duplex is actually a single-strand consensus because the matching strand is
+missing, only one number is listed."""
 
 
 def main(argv):
