@@ -118,7 +118,7 @@ function duplex_p3 {
 # duplex.py quality score consideration
 function duplex_qual {
   echo -e "\tduplex.py ::: qual.in.tsv:"
-  python "$dirname/../duplex.py" -q 20 "$dirname/qual.in.tsv" | diff -s - "$dirname/qual.out.fa"
+  python "$dirname/../duplex.py" --incl-sscs -q 20 "$dirname/qual.in.tsv" | diff -s - "$dirname/qual.out.fa"
 }
 
 function stats_diffs {
