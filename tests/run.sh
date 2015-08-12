@@ -95,15 +95,20 @@ function align {
 
 # duplex.py defaults on toy data
 function duplex {
-  echo -e "\tduplex.py ::: families.in.tsv:"
+  echo -e "\tduplex.py ::: families.msa.tsv:"
   python "$dirname/../duplex.py" "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.fa"
   python "$dirname/../duplex.py" --incl-sscs "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.incl-sscs.fa"
 }
 
 # duplex.py quality score consideration
 function duplex_qual {
-  echo -e "\tduplex.py ::: qual.in.tsv:"
-  python "$dirname/../duplex.py" --incl-sscs -q 20 "$dirname/qual.in.tsv" | diff -s - "$dirname/qual.out.fa"
+  echo -e "\tduplex.py ::: qual.msa.tsv:"
+  python "$dirname/../duplex.py" --incl-sscs -q 20 "$dirname/qual.msa.tsv" | diff -s - "$dirname/qual.cons.fa"
+}
+
+function duplex_gapqual {
+  echo -e "\tduplex.py ::: gapqual.msa.tsv:"
+  python "$dirname/../duplex.py" --incl-sscs -q 25 "$dirname/gapqual.msa.tsv" | diff -s - "$dirname/gapqual.cons.fa"
 }
 
 function stats_diffs {
