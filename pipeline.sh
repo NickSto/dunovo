@@ -5,6 +5,8 @@ if [ x$BASH = x ] || [ ! $BASH_VERSINFO ] || [ $BASH_VERSINFO -lt 4 ]; then
 fi
 set -ue
 
+# At the moment this isn't really a production version of the pipeline.
+# It mainly just documents how the commands are used.
 function main {
   fastq1="$1"
   fastq2="$2"
@@ -17,7 +19,8 @@ function main {
     | paste - <(gunzip -c "$fastq2" | paste - - - -) \
     | awk -f make-barcodes.awk \
     | sort \
-    | sscs.py \
+    | align_families.py \
+    | duplex.py \
     | gzip -c - \
     > "$sscs"
 }
