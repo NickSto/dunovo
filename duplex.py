@@ -134,6 +134,7 @@ def main(argv):
     family.append(read)
     all_reads += 1
   # Process the last family.
+  duplex[(order, mate)] = family
   process_duplex(duplex, barcode, workers=workers, stats=stats, **static)
 
   if args.processes > 1:
