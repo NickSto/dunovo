@@ -83,36 +83,21 @@ initial_declarations=$(declare -F)
 function all {
   align
   duplex
-  duplex_r1
-  duplex_p3
   duplex_qual
   stats_diffs
 }
 
 # align_families.py
 function align {
-  echo -e "\talign_families.py ::: families.duplex.in.tsv:"
-  python "$dirname/../align_families.py" "$dirname/families.duplex.in.tsv" | diff -s - "$dirname/families.duplex.msa.tsv"
+  echo -e "\talign_families.py ::: families.in.tsv:"
+  python "$dirname/../align_families.py" "$dirname/families.in.tsv" | diff -s - "$dirname/families.msa.tsv"
 }
 
 # duplex.py defaults on toy data
 function duplex {
   echo -e "\tduplex.py ::: families.in.tsv:"
-  python "$dirname/../duplex.py" "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.fa"
-  python "$dirname/../duplex.py" --incl-sscs "$dirname/families.duplex.msa.tsv" | diff -s - "$dirname/families.duplex.cons.incl-sscs.fa"
-}
-
-# duplex.py no minimum number of reads per family
-function duplex_r1 {
-  echo -e "\tduplex.py -r 1 ::: families.in.tsv:"
-  python "$dirname/../duplex.py" -r 1 "$dirname/families.in.tsv" | diff -s - "$dirname/families-r1.out.tsv"
-}
-
-# duplex.py parallelized
-function duplex_p3 {
-  echo -e "\tduplex.py -p 3 ::: families.in.tsv:"
-  python "$dirname/../duplex.py" -p 3 "$dirname/families.in.tsv" | paste - - | sort \
-    | diff -s - <(cat "$dirname/families.out.tsv" | paste - - | sort)
+  python "$dirname/../duplex.py" "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.fa"
+  python "$dirname/../duplex.py" --incl-sscs "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.incl-sscs.fa"
 }
 
 # duplex.py quality score consideration
