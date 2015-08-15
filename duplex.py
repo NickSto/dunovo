@@ -17,13 +17,13 @@ SOLEXA_START = 64
 REQUIRED_COMMANDS = ['mafft']
 OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
-DESCRIPTION = """Build consensus sequences from read families. Pipe sorted reads into stdin. Prints
-duplex consensus sequences in FASTA to stdout. The sequence ids are BARCODE.MATE, e.g.
-"CTCAGATAACATACCTTATATGCA.1", where "BARCODE" is the input barcode, and "MATE" is "1" or "2" as an
-arbitrary designation of the two reads in the pair. The id is followed by the count of the number of
-reads in the two families (one from each strand) that make up the duplex, in the format
-READS1/READS2. If the duplex is actually a single-strand consensus because the matching strand is
-missing, only one number is listed."""
+DESCRIPTION = """Build consensus sequences from read aligned families. Prints duplex consensus
+sequences in FASTA to stdout. The sequence ids are BARCODE.MATE, e.g. "CTCAGATAACATACCTTATATGCA.1",
+where "BARCODE" is the input barcode, and "MATE" is "1" or "2" as an arbitrary designation of the
+two reads in the pair. The id is followed by the count of the number of reads in the two families
+(one from each strand) that make up the duplex, in the format READS1/READS2. If the duplex is
+actually a single-strand consensus because the matching strand is missing, only one number is
+listed."""
 
 
 def main(argv):
@@ -47,13 +47,16 @@ def main(argv):
   parser.add_argument('--incl-sscs', action='store_true',
     help='When outputting duplex consensus sequences, include reads without a full duplex (missing '
          'one strand). The result will just be the single-strand consensus of the remaining read.')
-  parser.add_argument('-s', '--stats-file',
+  parser.add_argument('-s', '--sscs-file',
+    help='Save single-strand consensus sequences in this file (FASTA format). Currently does not '
+         'work when in parallel mode.')
+  parser.add_argument('-l', '--log', dest='stats_file',
     help='Print statistics on the run to this file. Use "-" to print to stderr.')
   parser.add_argument('-p', '--processes', type=int,
     help='Number of processes to use. If > 1, launches this many worker subprocesses. '
          'Default: %(default)s.')
   parser.add_argument('-S', '--slurm', action='store_true',
-    help='If -p > 1, prepend sub-commands with "srun -C new".')
+    help='If --processes > 1, prepend sub-commands with "srun -C new".')
 
   args = parser.parse_args(argv[1:])
 
@@ -63,6 +66,8 @@ def main(argv):
   static['processes'] = args.processes
   static['incl_sscs'] = args.incl_sscs
   static['min_reads'] = args.min_reads
+  if args.sscs_file:
+    static['sscs_fh'] = open(args.sscs_file, 'w')
   if args.qual_format == 'sanger':
     static['qual_thres'] = chr(args.qual + SANGER_START)
   elif args.qual_format == 'solexa':
@@ -142,6 +147,8 @@ def main(argv):
     compile_results(workers)
     delete_tempfiles(workers)
 
+  if args.sscs_file:
+    static['sscs_fh'].close()
   if infile is not sys.stdin:
     infile.close()
 
@@ -182,7 +189,7 @@ def open_workers(num_workers, args):
 
 
 def gather_args(args, infile, excluded_flags={'-S', '--slurm'},
-                excluded_args={'-p', '--processes', '-s', '--stats-file'}):
+                excluded_args={'-p', '--processes', '-l', '--log', '-s', '--sscs-file'}):
   """Take the full list of command-line arguments and return only the ones which
   should be passed to worker processes.
   Excludes the 0th argument (the command name), the input filename ("infile"), all
@@ -234,8 +241,8 @@ def delete_tempfiles(workers):
       os.remove(worker['stats'])
 
 
-def process_duplex(duplex, barcode, workers=None, stats=None, incl_sscs=False, processes=1,
-                   min_reads=1, qual_thres=' '):
+def process_duplex(duplex, barcode, workers=None, stats=None, incl_sscs=False, sscs_fh=None,
+                   processes=1, min_reads=1, qual_thres=' '):
   stats['families'] += 1
   # Are we the controller process or a worker?
   if processes > 1:
@@ -264,6 +271,11 @@ def process_duplex(duplex, barcode, workers=None, stats=None, incl_sscs=False, p
     consensi.append(consensus.get_consensus(seqs, quals, qual_thres=qual_thres))
     reads_per_strand.append(reads)
   assert len(consensi) <= 2
+  if sscs_fh:
+    for cons, (order, mate), reads in zip(consensi, duplex.keys(), reads_per_strand):
+      sscs_fh.write('>{bar}.{order}.{mate} {reads}\n'.format(bar=barcode, order=order, mate=mate,
+                                                             reads=reads))
+      sscs_fh.write(cons+'\n')
   if len(consensi) == 1 and incl_sscs:
     print_duplex(consensi[0], barcode, duplex_mate, reads_per_strand)
   elif len(consensi) == 2:
@@ -280,7 +292,8 @@ def process_duplex(duplex, barcode, workers=None, stats=None, incl_sscs=False, p
 
 
 def print_duplex(cons, barcode, mate, reads_per_strand, outfile=sys.stdout):
-  header = '>{bar}.{mate} {reads}'.format(bar=barcode, mate=mate, reads='/'.join(map(str, reads_per_strand)))
+  header = '>{bar}.{mate} {reads}'.format(bar=barcode, mate=mate,
+                                          reads='/'.join(map(str, reads_per_strand)))
   outfile.write(header+'\n')
   outfile.write(cons+'\n')
 
