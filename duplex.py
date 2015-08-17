@@ -50,11 +50,12 @@ def main(argv):
   parser.add_argument('-s', '--sscs-file',
     help='Save single-strand consensus sequences in this file (FASTA format). Currently does not '
          'work when in parallel mode.')
-  parser.add_argument('-l', '--log', dest='stats_file',
+  parser.add_argument('-l', '--log', metavar='LOG_FILE', dest='stats_file',
     help='Print statistics on the run to this file. Use "-" to print to stderr.')
   parser.add_argument('-p', '--processes', type=int,
-    help='Number of processes to use. If > 1, launches this many worker subprocesses. '
-         'Default: %(default)s.')
+    help='Number of processes to use. If > 1, launches this many worker subprocesses. Note: if '
+         'this option is used, no output will be generated until the end of the entire run, so no '
+         'streaming is possible. Default: %(default)s.')
   parser.add_argument('-S', '--slurm', action='store_true',
     help='If --processes > 1, prepend sub-commands with "srun -C new".')
 

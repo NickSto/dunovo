@@ -12,7 +12,7 @@
 #   8: read2 quality scores, minus the first 17bp
 # The canonical form of the barcode is composed of the first 12bp of each read. The 12bp from the
 # first read is the "alpha" and the one from the second is the "beta". The barcode is formed by
-# concatenating them in an order determined by summing the ASCII values of each sequence, then
+# concatenating them in an order determined by summing the ASCII values of each 12bp sequence, then
 # putting the one with a lower sum first. If the alpha is first, the value of the second column (the
 # order) is "ab", and "ba" if the beta is first.
 
