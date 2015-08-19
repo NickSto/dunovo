@@ -1,7 +1,9 @@
-Duplex Novo
+Du Novo
 ===========
 
 This is a simple pipeline to process duplex sequencing data without the use of a reference sequence.
+
+The pipeline was designed for use with the duplex method described in [Kennedy *et al.* 2014](https://dx.doi.org/10.1038/nprot.2014.170), but the assumptions are relatively minimal, so you should be able to apply it to variants of the protocol.
 
 
 ### Requirements
