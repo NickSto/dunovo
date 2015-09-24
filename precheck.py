@@ -5,85 +5,102 @@ import sys
 import argparse
 import getreads
 
-OPT_DEFAULTS = {'tag_len':12, 'const_len':5}
+OPT_DEFAULTS = {'tag_len':12, 'const_len':5, 'min_reads':3}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Print statistics on the raw duplex sequencing reads."""
+EPILOG = """This seems to take about 200 bytes of memory per (12bp) tag."""
 
 
 def main(argv):
 
-  parser = argparse.ArgumentParser(description=DESCRIPTION)
+  parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=EPILOG)
   parser.set_defaults(**OPT_DEFAULTS)
 
-  parser.add_argument('infiles', nargs='*',
-    help='The input files. Give the first and second mate files if FASTQ, e.g. "reads_1.fq '
-         'reads_2.fq". If SAM, give one file. Omit to read from stdin.')
-  parser.add_argument('-f', '--format', choices=('fastq',))
+  parser.add_argument('infile1', metavar='reads_1.fq',
+    help='The first mates in the read pairs.')
+  parser.add_argument('infile2', metavar='reads_2.fq',
+    help='The second mates in the read pairs.')
   parser.add_argument('-t', '--tag-length', dest='tag_len', type=int)
   parser.add_argument('-c', '--constant-length', dest='const_len', type=int)
+  parser.add_argument('-m', '--min-reads', type=int,
+    help='The minimum number of reads required in each single-stranded family. Default: '
+         '%(default)s')
+  parser.add_argument('-v', '--validate', action='store_true',
+    help='Check the id\'s of the reads to make sure the correct reads are mated into pairs.')
 
   args = parser.parse_args(argv[1:])
 
-  filetype = args.format
-  if len(args.infiles) == 0:
-    if not filetype:
-      fail('Error: must provide a --format if no input files are given (reading from stdin).')
-  if len(args.infiles) == 1:
-    if not filetype:
-      if args.infiles[0].endswith('.sam'):
-        filetype = 'sam'
-      else:
-        fail('Error: if giving 1 input file, it must end in .sam or you need to specify a '
-             '--format.')
-    if filetype != 'sam':
-      fail('Error: valid formats for 1 input file: sam.')
-  elif len(args.infiles) == 2:
-    if not filetype:
-      if ((args.infiles[0].endswith('.fq') or args.infiles[0].endswith('.fastq')) and
-          (args.infiles[1].endswith('.fq') or args.infiles[1].endswith('.fastq'))):
-        filetype = 'fastq'
-      else:
-        fail('Error: if giving 2 input files, they must both end in .fq or .fastq or you need to '
-             'specify a --format.')
-    if filetype != 'fastq':
-      fail('Error: valid formats for 2 input files: fastq.')
+  with open(args.infile1) as infileh1:
+    with open(args.infile2) as infileh2:
+      barcodes = read_files(infileh1, infileh2, tag_len=args.tag_len, validate=args.validate)
 
-  infileh1 = None
-  infileh2 = None
-  if len(args.infiles) == 0:
-    infileh1 = sys.stdin
-  else:
-    infileh1 = open(args.infiles[0])
-  reader1 = getreads.getparser(infileh1, filetype=filetype).parser()
-  if len(args.infiles) == 2:
-    infileh2 = open(args.infiles[1])
-    reader2 = getreads.getparser(infileh2, filetype=filetype).parser()
+  stats = get_stats(barcodes, tag_len=args.tag_len, min_reads=args.min_reads)
+  print_stats(stats, min_reads=args.min_reads)
 
-  total_reads = 0
+
+def read_files(infileh1, infileh2, tag_len=12, validate=False):
+  reader1 = getreads.getparser(infileh1, filetype='fastq').parser()
+  reader2 = getreads.getparser(infileh2, filetype='fastq').parser()
   barcodes = {}
   while True:
-    if filetype == 'fastq':
-      try:
-        read1 = reader1.next()
-        read2 = reader2.next()
-      except StopIteration:
-        break
-    barcode = read1.seq[:args.tag_len] + read2.seq[:args.tag_len]
+    try:
+      read1 = reader1.next()
+      read2 = reader2.next()
+    except StopIteration:
+      break
+    if validate and read1.id != read2.id:
+      raise getreads.FormatError('Read pair mismatch: "{}" and "{}"'.format(read1.id, read2.id))
+    alpha = read1.seq[:tag_len]
+    beta  = read2.seq[:tag_len]
+    barcode = alpha + beta
     if barcode not in barcodes:
       barcodes[barcode] = 1
     else:
       barcodes[barcode] += 1
-    total_reads += 1
+  return barcodes
 
-  if infileh1 and infileh1 is not sys.stdin:
-    infileh1.close()
-  if infileh2 and infileh2 is not sys.stdin:
-    infileh2.close()
 
-  print 'Total read pairs:\t'+str(total_reads)
-  print 'Unique barcodes:\t'+str(len(barcodes))
-  print 'Read pairs per barcode:\t'+str(total_reads/len(barcodes))
+def get_stats(barcodes, tag_len=12, min_reads=3):
+  passed_sscs = 0
+  duplexes = 0
+  passed_duplexes = 0
+  singletons = 0
+  total_reads = 0
+  for barcode, count in barcodes.items():
+    total_reads += count
+    if count == 1:
+      singletons += 1
+    if count >= min_reads:
+      passed_sscs += 1
+    alpha = barcode[:tag_len]
+    beta  = barcode[tag_len:]
+    reverse = beta + alpha
+    if reverse in barcodes:
+      duplexes += 1
+      if count >= min_reads and barcodes[reverse] >= min_reads:
+        passed_duplexes += 1
+  # Each full duplex ends up being counted twice. Halve it to get the real total.
+  stats = {
+    'reads':total_reads,
+    'barcodes':len(barcodes),
+    'singletons':singletons,
+    'avg_reads':total_reads/len(barcodes),
+    'duplexes':duplexes//2,
+    'passed_sscs':passed_sscs,
+    'passed_duplexes':passed_duplexes//2,
+  }
+  return stats
 
+
+def print_stats(stats, min_reads=3):
+  print """Total read pairs:\t{reads}
+Unique barcodes:\t{barcodes}
+Avg # of read pairs per barcode:\t{avg_reads}
+Singletons:\t{singletons}
+Barcodes with reverse (other strand) present:\t{duplexes}
+Passing threshold of {min_reads} reads per single-strand consensus:
+\tSingle-strand consensus sequences:\t{passed_sscs}
+\tDuplex consensus sequences:\t{passed_duplexes}""".format(min_reads=min_reads, **stats)
 
 
 def fail(message):
