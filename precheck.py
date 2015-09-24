@@ -5,10 +5,12 @@ import sys
 import argparse
 import getreads
 
-OPT_DEFAULTS = {'tag_len':12, 'const_len':5, 'min_reads':3}
+OPT_DEFAULTS = {'tag_len':12, 'const_len':5, 'min_reads':3, 'human':True}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Print statistics on the raw duplex sequencing reads."""
-EPILOG = """This seems to take about 200 bytes of memory per (12bp) tag."""
+EPILOG = """Warning: This tracks all barcodes in a dict, so it can take a lot of memory. A guideline
+is about 200 bytes per (12bp) tag. For example, it took about 800MB for a 10GB, 32 million read
+dataset with an average of 4 pairs per barcode."""
 
 
 def main(argv):
@@ -22,11 +24,15 @@ def main(argv):
     help='The second mates in the read pairs.')
   parser.add_argument('-t', '--tag-length', dest='tag_len', type=int)
   parser.add_argument('-c', '--constant-length', dest='const_len', type=int)
+  parser.add_argument('-C', '--computer', dest='human', action='store_false',
+    help='Print results in computer-readable format. This will be a tab-delimited version of the '
+         'output, in the same order, but with two columns: stat name and value.')
   parser.add_argument('-m', '--min-reads', type=int,
     help='The minimum number of reads required in each single-stranded family. Default: '
          '%(default)s')
   parser.add_argument('-v', '--validate', action='store_true',
-    help='Check the id\'s of the reads to make sure the correct reads are mated into pairs.')
+    help='Check the id\'s of the reads to make sure the correct reads are mated into pairs (the '
+         'id\'s of mates must be identical).')
 
   args = parser.parse_args(argv[1:])
 
@@ -35,7 +41,7 @@ def main(argv):
       barcodes = read_files(infileh1, infileh2, tag_len=args.tag_len, validate=args.validate)
 
   stats = get_stats(barcodes, tag_len=args.tag_len, min_reads=args.min_reads)
-  print_stats(stats, min_reads=args.min_reads)
+  print_stats(stats, min_reads=args.min_reads, human=args.human)
 
 
 def read_files(infileh1, infileh2, tag_len=12, validate=False):
@@ -65,9 +71,9 @@ def get_stats(barcodes, tag_len=12, min_reads=3):
   duplexes = 0
   passed_duplexes = 0
   singletons = 0
-  total_reads = 0
+  total_pairs = 0
   for barcode, count in barcodes.items():
-    total_reads += count
+    total_pairs += count
     if count == 1:
       singletons += 1
     if count >= min_reads:
@@ -81,10 +87,10 @@ def get_stats(barcodes, tag_len=12, min_reads=3):
         passed_duplexes += 1
   # Each full duplex ends up being counted twice. Halve it to get the real total.
   stats = {
-    'reads':total_reads,
+    'pairs':total_pairs,
     'barcodes':len(barcodes),
     'singletons':singletons,
-    'avg_reads':total_reads/len(barcodes),
+    'avg_pairs':total_pairs/len(barcodes),
     'duplexes':duplexes//2,
     'passed_sscs':passed_sscs,
     'passed_duplexes':passed_duplexes//2,
@@ -92,15 +98,22 @@ def get_stats(barcodes, tag_len=12, min_reads=3):
   return stats
 
 
-def print_stats(stats, min_reads=3):
-  print """Total read pairs:\t{reads}
+def print_stats(stats, min_reads=3, human=True):
+  all_stats = stats.copy()
+  all_stats.update({'min_reads':min_reads})
+  if human:
+    print """Total read pairs:\t{pairs}
 Unique barcodes:\t{barcodes}
-Avg # of read pairs per barcode:\t{avg_reads}
+Avg # of read pairs per barcode:\t{avg_pairs}
 Singletons:\t{singletons}
 Barcodes with reverse (other strand) present:\t{duplexes}
 Passing threshold of {min_reads} reads per single-strand consensus:
 \tSingle-strand consensus sequences:\t{passed_sscs}
-\tDuplex consensus sequences:\t{passed_duplexes}""".format(min_reads=min_reads, **stats)
+\tDuplex consensus sequences:\t{passed_duplexes}""".format(**all_stats)
+  else:
+    for stat in ('pairs', 'barcodes', 'avg_pairs', 'singletons', 'duplexes', 'min_reads',
+                 'passed_sscs', 'passed_duplexes'):
+      print '{}\t{}'.format(stat, all_stats[stat])
 
 
 def fail(message):
