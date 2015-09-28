@@ -218,7 +218,8 @@ def delegate(worker, duplex, barcode):
   for (order, mate), family in duplex.items():
     for read in family:
       line = '{}\t{}\t{}\t{name}\t{seq}\t{qual}\n'.format(barcode, order, mate, **read)
-    worker['proc'].stdin.write(line)
+    if family:
+      worker['proc'].stdin.write(line)
 
 
 def close_workers(workers):
