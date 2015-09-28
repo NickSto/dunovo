@@ -59,10 +59,10 @@ def read_files(infileh1, infileh2, tag_len=12, validate=False):
     alpha = read1.seq[:tag_len]
     beta  = read2.seq[:tag_len]
     barcode = alpha + beta
-    if barcode not in barcodes:
-      barcodes[barcode] = 1
-    else:
+    if barcode in barcodes:
       barcodes[barcode] += 1
+    else:
+      barcodes[barcode] = 1
   return barcodes
 
 
