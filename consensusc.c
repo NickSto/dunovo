@@ -29,6 +29,7 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
 int init_gap_qual_window(int *window, char *quals, int seq_len);
 char get_gap_qual(int *window);
 int push_qual(int *window, int win_edge, char *quals, int seq_len);
+void print_window(int *window, int win_edge);
 int **init_votes(int seq_len);
 void free_votes(int *votes[], int seq_len);
 void print_votes(char *consensus, int *votes[], int seq_len);
