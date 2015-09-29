@@ -11,6 +11,12 @@ import collections
 import distutils.spawn
 import seqtools
 
+#TODO: Warn if it looks like the two input FASTQ files are the same (i.e. the _1 file was given
+#      twice). Can tell by whether the alpha and beta (first and last 12bp) portions of the barcodes
+#      are always identical. This would be a good thing to warn about, since it's an easy mistake
+#      to make, but it's not obvious that it happened. The pipeline won't fail, but will just
+#      produce pretty weird results.
+
 REQUIRED_COMMANDS = ['mafft']
 OPT_DEFAULTS = {'processes':1}
 USAGE = "%(prog)s [options]"
@@ -140,7 +146,7 @@ def open_workers(num_workers, args):
       else:
         stats_subfile = "{}.{}.log".format(args.stats_file, i)
       command.extend(['-s', stats_subfile])
-    outfile = tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.out.part.')
+    outfile = tempfile.NamedTemporaryFile('w', delete=False, prefix='align.msa.')
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=outfile)
     worker = {'proc':process, 'outfile':outfile, 'stats':stats_subfile}
     workers.append(worker)
@@ -245,7 +251,7 @@ def make_msa(family, mate):
     # If there's only one read pair, there's no alignment to be done (and MAFFT won't accept it).
     return [{'name':family[0]['name'+mate], 'seq':family[0]['seq'+mate]}]
   #TODO: Replace with tempfile.mkstemp()?
-  with tempfile.NamedTemporaryFile('w', delete=False, prefix='sscs.') as family_file:
+  with tempfile.NamedTemporaryFile('w', delete=False, prefix='align.msa.') as family_file:
     for pair in family:
       name = pair['name'+mate]
       seq = pair['seq'+mate]
