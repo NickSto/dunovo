@@ -8,6 +8,7 @@ import tempfile
 import argparse
 import subprocess
 import collections
+import multiprocessing
 import distutils.spawn
 import seqtools
 
@@ -69,16 +70,14 @@ def main(argv):
   else:
     logging.disable(logging.CRITICAL)
 
-  # Open all the worker processes, if we're using more than one.
-  workers = None
-  if args.processes > 1:
-    workers = open_workers(args.processes, args)
+  # Open all the worker processes.
+  workers = open_workers(args.processes)
 
   # Main loop.
   # This processes whole duplexes (pairs of strands) at a time for a future option to align the
   # whole duplex at a time.
-  stats = {'time':0, 'pairs':0, 'runs':0, 'families':0}
-  all_pairs = 0
+  stats = {'duplexes':0, 'time':0, 'pairs':0, 'runs':0}
+  current_worker_i = 0
   duplex = collections.OrderedDict()
   family = []
   barcode = None
@@ -97,24 +96,30 @@ def main(argv):
       if this_barcode != barcode:
         # sys.stderr.write('processing {}: {} orders ({})\n'.format(barcode, len(duplex),
         #                  '/'.join([str(len(duplex[order])) for order in duplex])))
-        process_duplex(duplex, barcode, workers=workers, processes=args.processes, stats=stats)
+        result, current_worker_i = delegate(workers, stats, duplex, barcode)
+        sys.stdout.write(result)
         duplex = collections.OrderedDict()
       barcode = this_barcode
       order = this_order
       family = []
     pair = {'name1': name1, 'seq1':seq1, 'qual1':qual1, 'name2':name2, 'seq2':seq2, 'qual2':qual2}
     family.append(pair)
-    all_pairs += 1
+    stats['pairs'] += 1
   # Process the last family.
   duplex[order] = family
   # sys.stderr.write('processing {}: {} orders ({}) [last]\n'.format(barcode, len(duplex),
   #                  '/'.join([str(len(duplex[order])) for order in duplex])))
-  process_duplex(duplex, barcode, workers=workers, processes=args.processes, stats=stats)
+  result, current_worker_i = delegate(workers, stats, duplex, barcode)
+  sys.stdout.write(result)
 
-  if args.processes > 1:
-    close_workers(workers)
-    compile_results(workers)
-    delete_tempfiles(workers)
+  # Do one last loop through the workers, reading the remaining results and stopping them.
+  # Start at the worker after the last one processed by the previous loop.
+  start = current_worker_i + 1
+  for i in range(len(workers)):
+    worker_i = (start + i) % args.processes
+    worker = workers[worker_i]
+    sys.stdout.write(worker['pipe'].recv())
+    worker['pipe'].send(None)
 
   if infile is not sys.stdin:
     infile.close()
@@ -123,18 +128,17 @@ def main(argv):
     return
 
   # Final stats on the run.
-  logging.info('Processed {} read pairs and {} multi-pair families.'
-               .format(all_pairs, stats['runs']))
+  logging.info('Processed {pairs} read pairs in {duplexes} duplexes.'.format(**stats))
   per_pair = stats['time'] / stats['pairs']
   per_run = stats['time'] / stats['runs']
   logging.info('{:0.3f}s per pair, {:0.3f}s per run.'.format(per_pair, per_run))
 
 
-def open_workers(num_workers, args):
+def open_workers(num_workers):
   """Open the required number of worker processes."""
-  script_path = os.path.realpath(sys.argv[0])
   workers = []
   for i in range(num_workers):
+<<<<<<< HEAD
     if args.slurm:
       command = ['srun', '-C', 'new', 'python', script_path]
     else:
@@ -149,49 +153,41 @@ def open_workers(num_workers, args):
     outfile = tempfile.NamedTemporaryFile('w', delete=False, prefix='align.msa.')
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=outfile)
     worker = {'proc':process, 'outfile':outfile, 'stats':stats_subfile}
+=======
+    worker = {}
+    parent_pipe, child_pipe = multiprocessing.Pipe()
+    worker['pipe'] = parent_pipe
+    worker['process'] = multiprocessing.Process(target=worker_function, args=(child_pipe,))
+    worker['process'].start()
+>>>>>>> align_families.py: First draft of multiprocessing parallel implementation.
     workers.append(worker)
   return workers
 
 
-def delegate(worker, duplex, barcode):
-  """Send a family to a worker process."""
-  for order, family in duplex.items():
-    for pair in family:
-      line = '{}\t{}\t{name1}\t{seq1}\t{qual1}\t{name2}\t{seq2}\t{qual2}\n'.format(barcode, order,
-                                                                                   **pair)
-      worker['proc'].stdin.write(line)
+def worker_function(pipe):
+  while True:
+    data = pipe.recv()
+    if data is None:
+      break
+    args, kwargs = data
+    pipe.send(process_duplex(*args, **kwargs))
 
 
-def close_workers(workers):
-  for worker in workers:
-    worker['outfile'].close()
-    worker['proc'].stdin.close()
+def delegate(workers, stats, duplex, barcode):
+  stats['duplexes'] += 1
+  worker_i = stats['duplexes'] % len(workers)
+  worker = workers[worker_i]
+  args = (duplex, barcode)
+  kwargs = {'stats':stats}
+  if stats['duplexes'] >= len(workers):
+    result = worker['pipe'].recv()
+  else:
+    result = ''
+  worker['pipe'].send((args, kwargs))
+  return result, worker_i
 
 
-def compile_results(workers):
-  for worker in workers:
-    worker['proc'].wait()
-    with open(worker['outfile'].name, 'r') as outfile:
-      for line in outfile:
-        sys.stdout.write(line)
-
-
-def delete_tempfiles(workers):
-  for worker in workers:
-    os.remove(worker['outfile'].name)
-    if worker['stats']:
-      os.remove(worker['stats'])
-
-
-def process_duplex(duplex, barcode, workers=None, processes=1, stats=None):
-  # Are we the controller process or a worker?
-  stats['families'] += 1
-  if processes > 1:
-    i = stats['families'] % len(workers)
-    worker = workers[i]
-    delegate(worker, duplex, barcode)
-    return
-  # We're a worker. Actually process the family.
+def process_duplex(duplex, barcode, stats=None):
   orders = duplex.keys()
   if len(duplex) == 0 or None in duplex:
     return
@@ -208,9 +204,10 @@ def process_duplex(duplex, barcode, workers=None, processes=1, stats=None):
     family = duplex[order]
     alignment = align_family(family, mate, stats)
     if alignment is None:
-      logging.warning('Error aligning family {}/{} (read {}).'.format(barcode, order, mate))
+      #logging.warning('Error aligning family {}/{} (read {}).'.format(barcode, order, mate))
+      return ''
     else:
-      print_msa(alignment, barcode, order, mate)
+      return format_msa(alignment, barcode, order, mate)
 
 
 def align_family(family, mate, stats):
@@ -232,7 +229,7 @@ def align_family(family, mate, stats):
     alignment.append({'name':aligned_seq['name'], 'seq':aligned_seq['seq'], 'qual':aligned_qual})
   elapsed = time.time() - start
   pairs = len(family)
-  logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
+  #logging.info('{} sec for {} read pairs.'.format(elapsed, pairs))
   if pairs > 1:
     stats['time'] += elapsed
     stats['pairs'] += pairs
@@ -296,10 +293,12 @@ def read_fasta(fasta, is_file=True, upper=False):
   return sequences
 
 
-def print_msa(align, barcode, order, mate, outfile=sys.stdout):
+def format_msa(align, barcode, order, mate, outfile=sys.stdout):
+  output = ''
   for sequence in align:
-    outfile.write('{bar}\t{order}\t{mate}\t{name}\t{seq}\t{qual}\n'
-                  .format(bar=barcode, order=order, mate=mate, **sequence))
+    output += '{bar}\t{order}\t{mate}\t{name}\t{seq}\t{qual}\n'.format(bar=barcode, order=order,
+                                                                       mate=mate, **sequence)
+  return output
 
 
 def fail(message):
