@@ -82,6 +82,7 @@ initial_declarations=$(declare -F)
 # Do all tests.
 function all {
   align
+  align_p3
   duplex
   duplex_qual
   stats_diffs
@@ -91,6 +92,12 @@ function all {
 function align {
   echo -e "\talign_families.py ::: families.in.tsv:"
   python "$dirname/../align_families.py" "$dirname/families.in.tsv" | diff -s - "$dirname/families.msa.tsv"
+}
+
+# align_families.py with 3 processes
+function align_p3 {
+  echo -e "\talign_families.py ::: families.in.tsv:"
+  python "$dirname/../align_families.py" -p 3 "$dirname/families.in.tsv" | diff -s - "$dirname/families.msa.tsv"
 }
 
 # duplex.py defaults on toy data

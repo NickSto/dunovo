@@ -134,13 +134,13 @@ def worker_function(child_pipe):
 
 
 def delegate(workers, stats, duplex, barcode):
-  stats['duplexes'] += 1
   worker_i = stats['duplexes'] % len(workers)
   worker = workers[worker_i]
   if stats['duplexes'] >= len(workers):
     output, run_stats = worker.recv()
   else:
     output, run_stats = '', {}
+  stats['duplexes'] += 1
   args = (duplex, barcode)
   worker.send(args)
   return output, run_stats, worker_i
@@ -151,7 +151,7 @@ def process_duplex(duplex, barcode):
   run_stats = {'time':0, 'runs':0, 'aligned_pairs':0}
   orders = duplex.keys()
   if len(duplex) == 0 or None in duplex:
-    return
+    return '', {}
   elif len(duplex) == 1:
     # If there's only one strand in the duplex, just process the first mate, then the second.
     combos = ((1, orders[0]), (2, orders[0]))
