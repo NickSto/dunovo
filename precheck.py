@@ -89,11 +89,11 @@ def get_stats(barcodes, tag_len=12, min_reads=3):
   stats = {
     'pairs':total_pairs,
     'barcodes':len(barcodes),
-    'singletons':singletons,
     'avg_pairs':total_pairs/len(barcodes),
+    'singletons':singletons,
     'duplexes':duplexes//2,
-    'passed_sscs':passed_sscs,
-    'passed_duplexes':passed_duplexes//2,
+    'passed_sscs':passed_sscs*2,
+    'passed_duplexes':passed_duplexes,
   }
   return stats
 
