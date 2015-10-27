@@ -5,12 +5,14 @@ if [ x$BASH = x ] || [ ! $BASH_VERSINFO ] || [ $BASH_VERSINFO -lt 4 ]; then
 fi
 set -ue
 
-BarcodeLen=12
-SpacerLen=5
-ReadlenDefault=101
+BarcodeLen=${BarcodeLen:=12}
+SpacerLen=${SpacerLen:=5}
 BwaCmd=${BwaCmd:="bwa"}
+SamtoolsCmd=${SamtoolsCmd:="samtools"}
+PythonCmd=${PythonCmd:="python"}
+ReadlenDefault=101
 
-Usage="Usage: \$ $(basename $0) ref.fa reads_1.fq reads_2.fq [readlen]
+Usage="Usage: \$ $(basename $0) ref.fa reads_1.fq reads_2.fq readlen [outdir]
 Run the Loeb pipeline as it was published in the Kennedy et al. 2014 paper (release 2.0).
 If readlen is not provided, it will assume ${ReadlenDefault}bp.
 Dependencies:
@@ -28,40 +30,53 @@ function main {
   if [[ $# == 1 ]] && [[ $1 == '-v' ]]; then
     print_versions $script_dir
     exit
-  elif [[ $# -lt 3 ]] || [[ $1 == '-h' ]]; then
+  elif [[ $# -lt 4 ]] || [[ $1 == '-h' ]]; then
     fail "$Usage"
   else
     ref="$1"
     fastq1="$2"
     fastq2="$3"
-  fi
-  if [[ $# -ge 4 ]]; then
     readlen="$4"
+  fi
+  if [[ $# -ge 5 ]]; then
+    outdir="$5"
+  else
+    outdir=.
   fi
 
   print_versions $script_dir
 
+  echo "
+Parameters:
+ref:     $ref
+fastq1:  $fastq1
+fastq2:  $fastq2
+readlen: $readlen
+"
+
   rlenreal=$((readlen-BarcodeLen-SpacerLen))
 
-  python $script_dir/tag_to_header.py --infile1 $fastq1 --infile2 $fastq2 --outfile1 read_1.fq.smi \
-    --outfile2 read_2.fq.smi --barcode_length $BarcodeLen --spacer_length $SpacerLen
-  $BwaCmd aln $ref read_1.fq.smi > read_1.aln 
-  $BwaCmd aln $ref read_2.fq.smi > read_2.aln
-  $BwaCmd sampe -s $ref read_1.aln read_2.aln read_1.fq.smi read_2.fq.smi > PE_reads.sam
-  samtools view -Sbu PE_reads.sam | samtools sort - PE_reads.sort
-  python $script_dir/ConsensusMaker.py --infile PE_reads.sort.bam --tagfile PE_reads.tagcounts \
-    --outfile SSCS.bam --min 3 --max 1000 --cutoff 0.7 --Ncutoff 0.3 --readlength $rlenreal \
-    --read_type dpm --filt osn
-  samtools view -bu SSCS.bam | samtools sort - SSCS.sort
-  python $script_dir/DuplexMaker.py --infile SSCS.sort.bam --outfile DCS_data --Ncutoff 0.3 \
-    --readlength $rlenreal
-  $BwaCmd aln $ref DCS_data.r1.fq > DCS_data.r1.aln
-  $BwaCmd aln $ref DCS_data.r2.fq > DCS_data.r2.aln
-  $BwaCmd sampe -s $ref DCS_data.r1.aln DCS_data.r2.aln DCS_data.r1.fq DCS_data.r2.fq \
-    > DCS_PE.aln.sam
-  samtools view -Sbu DCS_PE.aln.sam | samtools sort - DCS_PE.aln.sort
-  samtools index DCS_PE.aln.sort.bam
-  samtools view -F 4 -b DCS_PE.aln.sort.bam > DCS_PE.filt.bam
+  $PythonCmd $script_dir/tag_to_header.py --infile1 $fastq1 --infile2 $fastq2 \
+    --outfile1 $outdir/read_1.fq.smi --outfile2 $outdir/read_2.fq.smi --barcode_length $BarcodeLen \
+    --spacer_length $SpacerLen
+  $BwaCmd aln $ref $outdir/read_1.fq.smi > $outdir/read_1.aln
+  $BwaCmd aln $ref $outdir/read_2.fq.smi > $outdir/read_2.aln
+  $BwaCmd sampe -s $ref $outdir/read_1.aln $outdir/read_2.aln \
+    $outdir/read_1.fq.smi $outdir/read_2.fq.smi > $outdir/PE_reads.sam
+  $SamtoolsCmd view -Sbu $outdir/PE_reads.sam | $SamtoolsCmd sort - $outdir/PE_reads.sort
+  $PythonCmd $script_dir/ConsensusMaker.py --tagfile $outdir/PE_reads.tagcounts \
+    --infile $outdir/PE_reads.sort.bam --outfile $outdir/SSCS.bam --min 3 --max 1000 --cutoff 0.7 \
+    --Ncutoff 0.3 --readlength $rlenreal --read_type dpm --filt osn
+  $SamtoolsCmd view -bu $outdir/SSCS.bam | $SamtoolsCmd sort - $outdir/SSCS.sort
+  $PythonCmd $script_dir/DuplexMaker.py --infile $outdir/SSCS.sort.bam --outfile $outdir/DCS_data \
+    --Ncutoff 0.3 --readlength $rlenreal
+  $BwaCmd aln $ref $outdir/DCS_data.r1.fq > $outdir/DCS_data.r1.aln
+  $BwaCmd aln $ref $outdir/DCS_data.r2.fq > $outdir/DCS_data.r2.aln
+  $BwaCmd sampe -s $ref $outdir/DCS_data.r1.aln $outdir/DCS_data.r2.aln \
+    $outdir/DCS_data.r1.fq $outdir/DCS_data.r2.fq > $outdir/DCS_PE.aln.sam
+  $SamtoolsCmd view -Sbu $outdir/DCS_PE.aln.sam | $SamtoolsCmd sort - $outdir/DCS_PE.aln.sort
+  $SamtoolsCmd index $outdir/DCS_PE.aln.sort.bam
+  $SamtoolsCmd view -F 4 -b $outdir/DCS_PE.aln.sort.bam > $outdir/DCS_PE.filt.bam
 }
 
 
@@ -102,15 +117,15 @@ function print_versions {
   git log --oneline -n 1 | grep --color=never -Eo '^\S+'
   cd - >/dev/null
   echo -en 'Python:\t\t2.7\t\t'
-  python --version 2>&1 | sed -E 's/python\s//I'
+  $PythonCmd --version 2>&1 | sed -E 's/python\s//I'
   echo -en 'BWA:\t\t0.6.2\t\t'
   $BwaCmd 2>&1 | sed -En 's/^.*version.*\s([0-9].*)$/\1/Ip'
   echo -en 'Samtools:\t0.1.18\t\t'
-  samtools 2>&1 | sed -En 's/^.*version.*\s([0-9].*)$/\1/Ip'
+  $SamtoolsCmd 2>&1 | sed -En 's/^.*version.*\s([0-9].*)$/\1/Ip'
   echo -en 'PySAM:\t\t0.7.5\t\t'
-  python -c 'import pysam; print pysam.__version__'
+  $PythonCmd -c 'import pysam; print pysam.__version__'
   echo -en 'BioPython:\t1.62\t\t'
-  python -c 'import Bio; print Bio.__version__'
+  $PythonCmd -c 'import Bio; print Bio.__version__'
 }
 
 
