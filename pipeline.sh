@@ -15,13 +15,12 @@ function main {
   # command. Mainly, it puts all the data for both read pairs on one line, and adds a column with
   # the barcode.
   # Warning: It assumes the fastq's have 4 lines per read!
-  gunzip -c "$fastq1" | paste - - - - \
-    | paste - <(gunzip -c "$fastq2" | paste - - - -) \
+  paste "$fastq1" "$fastq2" \
+    | paste - - - - \
     | awk -f make-barcodes.awk \
     | sort \
     | align_families.py \
     | duplex.py \
-    | gzip -c - \
     > "$sscs"
 }
 
