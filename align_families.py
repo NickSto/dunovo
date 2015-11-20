@@ -109,9 +109,10 @@ def main(argv):
 
   # Final stats on the run.
   sys.stderr.write('Processed {pairs} read pairs in {duplexes} duplexes.\n'.format(**stats))
-  per_pair = stats['time'] / stats['aligned_pairs']
-  per_run = stats['time'] / stats['runs']
-  sys.stderr.write('{:0.3f}s per pair, {:0.3f}s per run.\n'.format(per_pair, per_run))
+  if stats['aligned_pairs'] > 0:
+    per_pair = stats['time'] / stats['aligned_pairs']
+    per_run = stats['time'] / stats['runs']
+    sys.stderr.write('{:0.3f}s per pair, {:0.3f}s per run.\n'.format(per_pair, per_run))
 
 
 def open_workers(num_workers):
