@@ -4,5 +4,6 @@
 *.sublime-workspace
 *.fa
 *.tsv
+test.*
 align
 consensus

@@ -21,7 +21,7 @@
 # The canonical form of the barcode is composed of two concatenated tags, one from each read.
 # By default, each tag is the first 12bp of the read. The tag from the first read is the "alpha" and
 # the tag from the second is the "beta". The barcode is formed by concatenating them in an order
-# determined by a string comparison of the two. The greater tag is first (if they are equal, the
+# determined by a string comparison of the two. The lesser tag is first (if they are equal, the
 # beta is first, but then you have bigger problems).
 
 BEGIN {
@@ -42,7 +42,7 @@ BEGIN {
 $3 && $4 {
   alpha = substr($3, 1, TAG_LEN)
   beta = substr($4, 1, TAG_LEN)
-  if (alpha > beta) {
+  if (alpha < beta) {
     barcode = alpha beta
     order = "ab"
   } else {
