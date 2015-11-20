@@ -83,3 +83,13 @@ When calling SSCSs, by default 3 reads are required to successfully create a con
 The duplex consensus sequences are created by comparing the two SSCSs. For each base, if they agree, that base will be inserted. If they disagree, the IUPAC ambiguity code for the two bases will be used. Note that a disagreement between a base and a gap will result in an `N`. A planned feature is to use information from the raw reads contributing to the duplex to make a call in such a case, coding uncertainty into quality scores.
 
 The output of this step is the duplex consensus sequences in FASTA format. By default, it will only include full duplex consensuses, meaning if one of the two SSCSs are missing, that sequence will be omitted. But these sequences can be included with the `--incl-sscs` option, which will add lone SSCSs to the output.
+
+The reads will be printed in one, interleaved file, with the naming format
+
+    >{barcode}.{mate} {# reads in strand 1 family}/{# reads in strand 2 family}
+    >TTGCGCCAGGGCGAGGAAAATACT.1 8/13
+
+But this isn't easy to work with. A better output is in development, but for now you can use the awk script `outconv.awk` to convert the interleaved output file into two standard forward/reverse paired files with a standard naming convention:
+
+    $ awk -f utils/outconv.awk -v target=1 duplex.fa > duplex_1.fa
+    $ awk -f utils/outconv.awk -v target=2 duplex.fa > duplex_2.fa
