@@ -25,34 +25,35 @@
 # beta is first, but then you have bigger problems).
 
 BEGIN {
-  FS = "\t"; OFS = "\t";
+  FS = "\t"
+  OFS = "\t"
   # The number of bases from the start of each read that form the two halves of the barcode.
   # (this should be half the size of the full, canonical barcode).
-  if (! TAG_LEN) {
-    TAG_LEN = 12;
+  if (TAG_LEN == "") {
+    TAG_LEN = 12
   }
   # The number of bases in the read that are between the barcode and the start of the actual sample
   # sequence (the restriction site in the Loeb 2014 protocol).
-  if (! INVARIANT) {
-    INVARIANT = 5;
+  if (INVARIANT == "") {
+    INVARIANT = 5
   }
 }
 
 $3 && $4 {
-  alpha = substr($3, 1, TAG_LEN);
-  beta = substr($4, 1, TAG_LEN);
+  alpha = substr($3, 1, TAG_LEN)
+  beta = substr($4, 1, TAG_LEN)
   if (alpha > beta) {
-    barcode = alpha beta;
-    order = "ab";
+    barcode = alpha beta
+    order = "ab"
   } else {
-    barcode = beta alpha;
-    order = "ba";
+    barcode = beta alpha
+    order = "ba"
   }
-  name1 = $1;
-  name2 = $2;
-  seq1 = substr($3, TAG_LEN + INVARIANT + 1);
-  seq2 = substr($4, TAG_LEN + INVARIANT + 1);
-  qual1 = substr($7, TAG_LEN + INVARIANT + 1);
-  qual2 = substr($8, TAG_LEN + INVARIANT + 1);
-  print barcode, order, name1, seq1, qual1, name2, seq2, qual2;
+  name1 = $1
+  name2 = $2
+  seq1 = substr($3, TAG_LEN + INVARIANT + 1)
+  seq2 = substr($4, TAG_LEN + INVARIANT + 1)
+  qual1 = substr($7, TAG_LEN + INVARIANT + 1)
+  qual2 = substr($8, TAG_LEN + INVARIANT + 1)
+  print barcode, order, name1, seq1, qual1, name2, seq2, qual2
 }
