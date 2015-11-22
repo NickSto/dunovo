@@ -17,18 +17,18 @@
   </outputs>
   <tests>
     <test>
-      <param name="fastq1" value="toy1_1.fq"/>
-      <param name="fastq2" value="toy1_2.fq"/>
+      <param name="fastq1" value="smoke_1.fq"/>
+      <param name="fastq2" value="smoke_2.fq"/>
       <param name="taglen" value="5"/>
       <param name="invariant" value="1"/>
-      <output name="output" file="toy1.families.tsv"/>
+      <output name="output" file="smoke.families.tsv"/>
     </test>
     <test>
-      <param name="fastq1" value="toy1_1.fq"/>
-      <param name="fastq2" value="toy1_2.fq"/>
+      <param name="fastq1" value="smoke_1.fq"/>
+      <param name="fastq2" value="smoke_2.fq"/>
       <param name="taglen" value="5"/>
       <param name="invariant" value="0"/>
-      <output name="output" file="toy1.families.i0.tsv"/>
+      <output name="output" file="smoke.families.i0.tsv"/>
     </test>
   </tests>
   <help>

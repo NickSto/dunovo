@@ -8,6 +8,12 @@
   <outputs>
     <data name="output" format="tabular"/>
   </outputs>
+  <tests>
+    <test>
+      <param name="input" value="smoke.families.tsv"/>
+      <output name="output" file="smoke.families.aligned.tsv"/>
+    </test>
+  </tests>
   <help>
 
 **What it does**
@@ -19,6 +25,21 @@ This is for processing duplex sequencing data. It does a multiple sequence align
 **Input**
 
 This expects the output format of the "Make families" tool.
+
+-----
+
+**Output**
+
+The output is a tabular file where each line corresponds to a (single) read.
+
+The columns are::
+
+  1: barcode (both tags)
+  2: tag order in barcode ("ab" or "ba")
+  3: read mate ("1" or "2")
+  4: read name
+  5: read sequence, aligned ("-" for gaps)
+  6: read quality scores, aligned (" " for gaps)
 
 -----
 
