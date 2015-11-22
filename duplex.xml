@@ -1,0 +1,33 @@
+<tool id="duplex" name="Make consensus reads" version="0.1">
+  <description>from duplex sequencing data</description>
+  <command interpreter="python" detect_errors="exit_code"><![CDATA[
+    duplex.py -r $min_reads -q $qual_thres -F $qual_format $input --sscs-file $sscs > duplex.fa
+    && awk -f $__tool_directory__/utils/outconv.awk -v target=1 duplex.fa > $output1
+    && awk -f $__tool_directory__/utils/outconv.awk -v target=2 duplex.fa > $output2
+  ]]>
+  </command>
+  <inputs>
+    <param name="input" type="data" format="tabular" label="Aligned input reads" />
+    <param name="min_reads" type="integer" value="3" min="1" label="Minimum reads per family" help="Single-strand families with fewer than this many reads will be skipped."/>
+    <param name="qual_thres" type="integer" value="25" min="1" label="Minimum base quality" help="Bases with a PHRED score less than this will not be counted in the consensus making."/>
+    <param name="qual_format" type="text" value="sanger" label="FASTQ format" help="Choices: &quot;sanger&quot; or &quot;solexa&quot;. Needed to know whether the quality scores start at &quot;!&quot; (sanger) or &quot;@&quot; (solexa). &quot;solexa&quot; should also work for Illumina 1.3+ and 1.5+, and &quot;sanger&quot; should work for Illumina 1.8+."/>
+  </inputs>
+  <outputs>
+    <data name="sscs" format="fasta"/>
+    <data name="output1" format="fasta"/>
+    <data name="output2" format="fasta"/>
+  </outputs>
+  <help>
+
+**What it does**
+
+This is for processing duplex sequencing data. It creates single-strand and duplex consensus reads from aligned read families.
+
+-----
+
+**Input**
+
+This expects the output format of the "Align families" tool.
+
+    </help>
+</tool>

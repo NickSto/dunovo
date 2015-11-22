@@ -1,0 +1,33 @@
+<tool id="align_families" name="Align families" version="0.1">
+  <description>from duplex sequencing data</description>
+  <command interpreter="python" detect_errors="exit_code">align_families.py $input &gt; $output
+  </command>
+  <inputs>
+    <param name="input" type="data" format="tabular" label="Input reads" help="with barcodes, grouped by family"/>
+  </inputs>
+  <outputs>
+    <data name="output" format="tabular"/>
+  </outputs>
+  <help>
+
+**What it does**
+
+This is for processing duplex sequencing data. It does a multiple sequence alignment on each (single-stranded) family of reads.
+
+-----
+
+**Input**
+
+This expects the output format of the "Make families" tool.
+
+-----
+
+**Alignments**
+
+The alignments are done using MAFFT, specifically the command
+::
+
+  $ mafft --nuc --quiet family.fa &gt; family.aligned.fa
+
+    </help>
+</tool>
