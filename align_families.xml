@@ -9,6 +9,9 @@
   <outputs>
     <data name="output" format="tabular"/>
   </outputs>
+  <requirements>
+    <requirement type="package" version="7.221">mafft</requirement>
+  </requirements>
   <tests>
     <test>
       <param name="input" value="smoke.families.tsv"/>
