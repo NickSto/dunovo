@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 from __future__ import division
+import os
 import sys
 import math
 import argparse
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import seqtools
 import swalign
 

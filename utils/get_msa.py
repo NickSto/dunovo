@@ -5,6 +5,7 @@ import sys
 import argparse
 import tempfile
 import subprocess
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import consensus
 import seqtools
 
