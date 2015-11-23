@@ -1,3 +1,4 @@
+<?xml version="1.0"?>
 <tool id="align_families" name="Align families" version="0.1">
   <description>from duplex sequencing data</description>
   <command interpreter="python" detect_errors="exit_code">align_families.py $input &gt; $output

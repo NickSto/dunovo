@@ -1,3 +1,4 @@
+<?xml version="1.0"?>
 <tool id="duplex" name="Make consensus reads" version="0.1">
   <description>from duplex sequencing data</description>
   <command interpreter="python" detect_errors="exit_code"><![CDATA[
@@ -38,6 +39,12 @@ This is for processing duplex sequencing data. It creates single-strand and dupl
 **Input**
 
 This expects the output format of the "Align families" tool.
+
+-----
+
+**Output**
+
+This will output final, duplex consensus reads in two FASTA files (first and second reads in the pairs). Optionally, you can save the single-strand reads too, in a separate FASTA file.
 
     </help>
 </tool>

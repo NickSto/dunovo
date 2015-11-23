@@ -1,3 +1,4 @@
+<?xml version="1.0"?>
 <tool id="make_families" name="Make families" version="0.1">
   <description>from duplex sequencing data</description>
   <command>paste $fastq1 $fastq2
