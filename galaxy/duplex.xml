@@ -1,14 +1,18 @@
 <?xml version="1.0"?>
 <tool id="duplex" name="Make consensus reads" version="0.1">
   <description>from duplex sequencing data</description>
-  <command interpreter="python" detect_errors="exit_code"><![CDATA[
-    duplex.py -r $min_reads -q $qual_thres -F $qual_format $input
+  <requirements>
+    <requirement type="package" version="0.1">duplex</requirement>
+    <requirement type="set_environment">DUPLEX_DIR</requirement>
+  </requirements>
+  <command detect_errors="exit_code"><![CDATA[
+    python \$DUPLEX_DIR/duplex.py -r $min_reads -q $qual_thres -F $qual_format $input
     #if $keep_sscs:
       --sscs-file $sscs
     #end if
     > duplex.fa
-    && awk -f $__tool_directory__/utils/outconv.awk -v target=1 duplex.fa > $output1
-    && awk -f $__tool_directory__/utils/outconv.awk -v target=2 duplex.fa > $output2
+    && awk -f \$DUPLEX_DIR/utils/outconv.awk -v target=1 duplex.fa > $output1
+    && awk -f \$DUPLEX_DIR/utils/outconv.awk -v target=2 duplex.fa > $output2
   ]]>
   </command>
   <inputs>

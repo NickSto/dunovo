@@ -1,9 +1,13 @@
 <?xml version="1.0"?>
 <tool id="make_families" name="Make families" version="0.1">
   <description>from duplex sequencing data</description>
+  <requirements>
+    <requirement type="package" version="0.1">duplex</requirement>
+    <requirement type="set_environment">DUPLEX_DIR</requirement>
+  </requirements>
   <command>paste $fastq1 $fastq2
     | paste - - - -
-    | awk -f $__tool_directory__/make-barcodes.awk -v TAG_LEN=$taglen -v INVARIANT=$invariant
+    | awk -f \$DUPLEX_DIR/make-barcodes.awk -v TAG_LEN=$taglen -v INVARIANT=$invariant
     | sort
     &gt; $output
   </command>
