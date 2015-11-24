@@ -14,6 +14,7 @@ import swalign
 
 SANGER_START = 33
 SOLEXA_START = 64
+REQUIRED_COMMANDS = []
 OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build consensus sequences from read aligned families. Prints duplex consensus
