@@ -1,0 +1,4 @@
+categories: [Sequence Analysis]
+description: A pipeline for processing duplex sequencing data.
+name: duplex
+owner: nick
