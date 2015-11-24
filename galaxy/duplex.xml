@@ -32,6 +32,13 @@
       <filter>keep_sscs</filter>
     </data>
   </outputs>
+  <tests>
+    <test>
+      <param name="input" value="families.msa.tsv"/>
+      <output name="output1" file="families.cons_1.fa"/>
+      <output name="output2" file="families.cons_2.fa"/>
+    </test>
+  </tests>
   <help>
 
 **What it does**

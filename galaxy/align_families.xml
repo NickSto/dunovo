@@ -19,6 +19,10 @@
       <param name="input" value="smoke.families.tsv"/>
       <output name="output" file="smoke.families.aligned.tsv"/>
     </test>
+    <test>
+      <param name="input" value="families.in.tsv"/>
+      <output name="output" file="families.sort.tsv"/>
+    </test>
   </tests>
   <help>
 

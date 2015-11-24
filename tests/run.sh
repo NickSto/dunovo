@@ -88,16 +88,23 @@ function all {
   stats_diffs
 }
 
+function barcodes {
+  echo -e "\tmake-barcodes.awk ::: families.raw_[12].fq"
+  paste "$dirname/families.raw_1.fq" "$dirname/families.raw_2.fq" | paste - - - - \
+    | awk -f "$dirname/../make-barcodes.awk" -v TAG_LEN=12 -v INVARIANT=5 | sort \
+    | diff -s - "$dirname/families.sort.tsv"
+}
+
 # align_families.py
 function align {
-  echo -e "\talign_families.py ::: families.in.tsv:"
-  python "$dirname/../align_families.py" "$dirname/families.in.tsv" | diff -s - "$dirname/families.msa.tsv"
+  echo -e "\talign_families.py ::: families.sort.tsv:"
+  python "$dirname/../align_families.py" "$dirname/families.sort.tsv" | diff -s - "$dirname/families.msa.tsv"
 }
 
 # align_families.py with 3 processes
 function align_p3 {
-  echo -e "\talign_families.py ::: families.in.tsv:"
-  python "$dirname/../align_families.py" -p 3 "$dirname/families.in.tsv" | diff -s - "$dirname/families.msa.tsv"
+  echo -e "\talign_families.py ::: families.sort.tsv:"
+  python "$dirname/../align_families.py" -p 3 "$dirname/families.sort.tsv" | diff -s - "$dirname/families.msa.tsv"
 }
 
 # duplex.py defaults on toy data
