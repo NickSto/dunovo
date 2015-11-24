@@ -1,10 +1,11 @@
 <?xml version="1.0"?>
-<tool id="make_families" name="Make families" version="0.2">
-  <description>from duplex sequencing data</description>
+<tool id="make_families" name="Du Novo: Make families" version="0.2">
+  <description>of duplex sequencing reads</description>
   <requirements>
     <requirement type="package" version="0.2">duplex</requirement>
     <requirement type="set_environment">DUPLEX_DIR</requirement>
   </requirements>
+  <!-- TODO: Add dependency on coreutils to get paste? -->
   <command>paste $fastq1 $fastq2
     | paste - - - -
     | awk -f \$DUPLEX_DIR/make-barcodes.awk -v TAG_LEN=$taglen -v INVARIANT=$invariant

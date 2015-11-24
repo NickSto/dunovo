@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
-<tool id="duplex" name="Make consensus reads" version="0.2">
-  <description>from duplex sequencing data</description>
+<tool id="duplex" name="Du Novo: Make consensus reads" version="0.2">
+  <description>from duplex sequencing alignments</description>
   <requirements>
     <requirement type="package" version="0.2">duplex</requirement>
     <requirement type="set_environment">DUPLEX_DIR</requirement>
