@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
-<tool id="duplex" name="Make consensus reads" version="0.1">
+<tool id="duplex" name="Make consensus reads" version="0.2">
   <description>from duplex sequencing data</description>
   <requirements>
-    <requirement type="package" version="0.1">duplex</requirement>
+    <requirement type="package" version="0.2">duplex</requirement>
     <requirement type="set_environment">DUPLEX_DIR</requirement>
   </requirements>
   <command detect_errors="exit_code"><![CDATA[
