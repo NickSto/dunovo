@@ -23,7 +23,14 @@ where "BARCODE" is the input barcode, and "MATE" is "1" or "2" as an arbitrary d
 two reads in the pair. The id is followed by the count of the number of reads in the two families
 (one from each strand) that make up the duplex, in the format READS1/READS2. If the duplex is
 actually a single-strand consensus because the matching strand is missing, only one number is
-listed."""
+listed.
+Rules for consensus building: Single-strand consensus sequences are made by counting how many of
+each base are at a given position. Bases with a PHRED quality score below the --qual threshold are
+not counted. If a majority of the reads (that pass the --qual threshold at that position) have one
+base at that position, then that base is used as the consensus base. If no base has a majority, then
+an N is used. Duplex consensus sequences are made by aligning pairs of single-strand consensuses,
+and comparing bases at each position. If they agree, that base is used in the consensus. Otherwise,
+the IUPAC ambiguity code for both bases is used (N + anything and gap + non-gap result in an N)."""
 
 
 def main(argv):
