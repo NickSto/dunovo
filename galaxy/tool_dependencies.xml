@@ -3,10 +3,10 @@
   <package name="mafft" version="7.221">
     <repository name="mafft" owner="rnateam"/>
   </package>
-  <package name="duplex" version="0.2">
+  <package name="duplex" version="0.3">
     <install version="1.0">
       <actions>
-        <action type="download_by_url">https://github.com/makrutenko/duplex/archive/v0.2.tar.gz</action>
+        <action type="download_by_url">https://github.com/makrutenko/dunovo/archive/v0.3.tar.gz</action>
         <action type="shell_command">make</action>
         <action type="move_directory_files">
           <source_directory>.</source_directory>

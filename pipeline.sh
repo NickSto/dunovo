@@ -20,7 +20,7 @@ function main {
     | awk -f make-barcodes.awk \
     | sort \
     | align_families.py \
-    | duplex.py \
+    | dunovo.py \
     > "$sscs"
 }
 
