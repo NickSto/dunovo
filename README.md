@@ -33,7 +33,7 @@ You'll need to compile the C modules before using it. Do this in a terminal by `
 
 This example shows how to go from raw duplex sequencing data to the final duplex consensus sequences.
 
-Your raw reads should be in `reads_1.fastq` and `reads_2.fastq`. And the scripts `align_families.py` and `duplex.py` should be on your `PATH`. Also, in the following command, replace `make-barcodes.awk` with the actual path to that script (included in this pipeline).
+Your raw reads should be in `reads_1.fastq` and `reads_2.fastq`. And the scripts `align_families.py` and `dunovo.py` should be on your `PATH`. Also, in the following command, replace `make-barcodes.awk` with the actual path to that script (included in this pipeline).
 
 1. Sort the reads into families based on their barcodes and split the barcodes from the sequence.  
     ```bash
@@ -47,7 +47,7 @@ Your raw reads should be in `reads_1.fastq` and `reads_2.fastq`. And the scripts
 `$ align_families.py families.tsv > families.msa.tsv`
 
 3. Build duplex consensus sequences from the aligned families.  
-`$ duplex.py families.msa.tsv > duplex.fa`
+`$ dunovo.py families.msa.tsv > duplex.fa`
 
 See all options for a given command by giving it the `-h` flag.
 
@@ -75,7 +75,7 @@ This step aligns each family of reads, but it processes each strand separately. 
 
 ##### 3. Build duplex consensus sequences from the aligned families.  
 
-`$ duplex.py families.msa.tsv > duplex.fa`
+`$ dunovo.py families.msa.tsv > duplex.fa`
 
 This calls a consensus sequence from the multiple sequence alignments of the previous step. It does this in two steps: First, single-strand consensus sequences (SSCSs) are called from the family alignments, then duplex consensus sequences are called from pairs of SSCSs.
 

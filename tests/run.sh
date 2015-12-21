@@ -107,22 +107,22 @@ function align_p3 {
   python "$dirname/../align_families.py" -p 3 "$dirname/families.sort.tsv" | diff -s - "$dirname/families.msa.tsv"
 }
 
-# duplex.py defaults on toy data
+# dunovo.py defaults on toy data
 function duplex {
-  echo -e "\tduplex.py ::: families.msa.tsv:"
-  python "$dirname/../duplex.py" "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.fa"
-  python "$dirname/../duplex.py" --incl-sscs "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.incl-sscs.fa"
+  echo -e "\tdunovo.py ::: families.msa.tsv:"
+  python "$dirname/../dunovo.py" "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.fa"
+  python "$dirname/../dunovo.py" --incl-sscs "$dirname/families.msa.tsv" | diff -s - "$dirname/families.cons.incl-sscs.fa"
 }
 
-# duplex.py quality score consideration
+# dunovo.py quality score consideration
 function duplex_qual {
-  echo -e "\tduplex.py ::: qual.msa.tsv:"
-  python "$dirname/../duplex.py" --incl-sscs -q 20 "$dirname/qual.msa.tsv" | diff -s - "$dirname/qual.cons.fa"
+  echo -e "\tdunovo.py ::: qual.msa.tsv:"
+  python "$dirname/../dunovo.py" --incl-sscs -q 20 "$dirname/qual.msa.tsv" | diff -s - "$dirname/qual.cons.fa"
 }
 
 function duplex_gapqual {
-  echo -e "\tduplex.py ::: gapqual.msa.tsv:"
-  python "$dirname/../duplex.py" --incl-sscs -q 25 "$dirname/gapqual.msa.tsv" | diff -s - "$dirname/gapqual.cons.fa"
+  echo -e "\tdunovo.py ::: gapqual.msa.tsv:"
+  python "$dirname/../dunovo.py" --incl-sscs -q 25 "$dirname/gapqual.msa.tsv" | diff -s - "$dirname/gapqual.cons.fa"
 }
 
 function stats_diffs {
