@@ -302,7 +302,7 @@ def process_duplex(duplex, barcode, workers=None, stats=None, incl_sscs=False, s
 
 def print_duplex(cons, barcode, mate, reads_per_strand, outfile=sys.stdout):
   header = '>{bar}.{mate} {reads}'.format(bar=barcode, mate=mate,
-                                          reads='/'.join(map(str, reads_per_strand)))
+                                          reads='-'.join(map(str, reads_per_strand)))
   outfile.write(header+'\n')
   outfile.write(cons+'\n')
 
