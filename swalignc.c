@@ -22,6 +22,7 @@
  *  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  *  OTHER DEALINGS IN THE SOFTWARE.
  */
+// Note: That's an MIT license.
 // All double-commented comments below are from Nicolaus Lance Hepler.
 
 #include "swalignc.h"
