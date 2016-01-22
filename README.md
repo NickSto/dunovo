@@ -1,10 +1,23 @@
-# Du Novo
+# _Du Novo_
 
 This is a pipeline for processing of duplex sequencing data without the use of a reference genome.
 
 The pipeline was designed for use with the duplex method described in [Kennedy *et al.* 2014](https://dx.doi.org/10.1038/nprot.2014.170), but the assumptions are relatively minimal, so you should be able to apply it to variants of the protocol.
 
-## Requirements
+## Using _Du Novo_
+
+_Du Novo_ can be used in one of two ways:
+
+ * via Galaxy
+ * on the command line
+
+## Running _Du Novo_ from Galaxy
+
+We created a comprehensive [tutorial](https://github.com/galaxyproject/dunovo/wiki) explaining all aspects of interactive use of _De Novo_ from within [Galaxy](http://usegalaxy.org).
+
+## Running _Du Novo_ on the command line
+
+### Requirements
 
 The pipeline requires a Unix command line, and it must be able to find the `mafft` command on your [`PATH`](https://en.wikipedia.org/wiki/Search_path).
 
@@ -20,7 +33,7 @@ All known requirements are below. Version numbers in parentheses are what the de
  -  [paste](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
  -  [sort](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
 
-## Installation
+### Installation
 
     $ git clone git@github.com:makrutenko/duplex.git
     $ cd duplex
@@ -31,7 +44,7 @@ Instead of the `git` command, you can just click "Download ZIP", unzip it, and `
 You'll need to compile the C modules before using it. Do this in a terminal by `cd`ing to the source directory (where the file `Makefile` is) and run the command `make`.
 
 
-## Running _Du Novo_ from command line
+### Usage
 
 This example shows how to go from raw duplex sequencing data to the final duplex consensus sequences.
 
@@ -96,7 +109,3 @@ But this isn't easy to work with. A better output is in development, but for now
 
     $ awk -f utils/outconv.awk -v target=1 duplex.fa > duplex_1.fa
     $ awk -f utils/outconv.awk -v target=2 duplex.fa > duplex_2.fa
-
-## Running _Du Novo_ from Galaxy
-
-We created a comprehensive [tutorial](https://github.com/galaxyproject/dunovo/wiki) explaining all aspects of interactive use of _De Novo_ from within [Galaxy](http://usegalaxy.org).
