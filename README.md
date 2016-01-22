@@ -1,12 +1,10 @@
-Du Novo
-===========
+# Du Novo
 
-This is a simple pipeline to process duplex sequencing data without the use of a reference sequence.
+This is a pipeline for processing of duplex sequencing data without the use of a reference genome.
 
 The pipeline was designed for use with the duplex method described in [Kennedy *et al.* 2014](https://dx.doi.org/10.1038/nprot.2014.170), but the assumptions are relatively minimal, so you should be able to apply it to variants of the protocol.
 
-
-### Requirements
+## Requirements
 
 The pipeline requires a Unix command line, and it must be able to find the `mafft` command on your [`PATH`](https://en.wikipedia.org/wiki/Search_path).
 
@@ -14,11 +12,15 @@ All known requirements are below. Version numbers in parentheses are what the de
 
 * [MAFFT](http://mafft.cbrc.jp/alignment/software/) (v7.123b)
 * [Python](https://www.python.org/) (**2.7**)  
-And standard unix tools:
-* [gcc](https://gcc.gnu.org/) (4.8.4), [make](https://www.gnu.org/software/make/) (3.81), [bash](https://www.gnu.org/software/bash/bash.html) (4.0), [awk](https://www.gnu.org/software/gawk/) (4.0.1), [paste](https://www.gnu.org/software/coreutils/coreutils.html) (8.21), [sort](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
+* And standard unix tools:
+ -  [gcc](https://gcc.gnu.org/) (4.8.4)
+ -  [make](https://www.gnu.org/software/make/) (3.81)
+ -  [bash](https://www.gnu.org/software/bash/bash.html) (4.0)
+ -  [awk](https://www.gnu.org/software/gawk/) (4.0.1)
+ -  [paste](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
+ -  [sort](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
 
-
-### Installation
+## Installation
 
     $ git clone git@github.com:makrutenko/duplex.git
     $ cd duplex
@@ -29,7 +31,7 @@ Instead of the `git` command, you can just click "Download ZIP", unzip it, and `
 You'll need to compile the C modules before using it. Do this in a terminal by `cd`ing to the source directory (where the file `Makefile` is) and run the command `make`.
 
 
-### Usage
+## Running _Du Novo_ from command line
 
 This example shows how to go from raw duplex sequencing data to the final duplex consensus sequences.
 
@@ -54,7 +56,7 @@ See all options for a given command by giving it the `-h` flag.
 
 ### Details
 
-##### 1. Sort the reads into families based on their barcodes and split the barcodes from the sequence.  
+#### 1. Sort the reads into families based on their barcodes and split the barcodes from the sequence.  
 
     $ paste reads_1.fastq reads_2.fastq \
       | paste - - - - \
@@ -66,14 +68,14 @@ This command pipeline will transform each pair of reads into a one-line record, 
 Note: This step requires your FASTQ files to have exactly 4 lines per read (no multi-line sequences). Also, in the output, the read sequence does not include the barcode or the 5bp constant sequence after it. You can customize the length of the barcode or constant sequence by setting the awk constants `TAG_LEN` and `INVARIANT` (i.e. `awk -v TAG_LEN=10 make-barcodes.awk`).
 
 
-##### 2. Do multiple sequence alignments of the read families.  
+#### 2. Do multiple sequence alignments of the read families.  
 
 `$ align_families.py families.tsv > families.msa.tsv`
 
 This step aligns each family of reads, but it processes each strand separately. It can be parallelized with the `-p` option.
 
 
-##### 3. Build duplex consensus sequences from the aligned families.  
+#### 3. Build duplex consensus sequences from the aligned families.  
 
 `$ dunovo.py families.msa.tsv > duplex.fa`
 
@@ -94,3 +96,7 @@ But this isn't easy to work with. A better output is in development, but for now
 
     $ awk -f utils/outconv.awk -v target=1 duplex.fa > duplex_1.fa
     $ awk -f utils/outconv.awk -v target=2 duplex.fa > duplex_2.fa
+
+## Running _Du Novo_ from Galaxy
+
+We created a comprehensive [tutorial](https://github.com/galaxyproject/dunovo/wiki) explaining all aspects of interactive use of _De Novo_ from within [Galaxy](http://usegalaxy.org).
