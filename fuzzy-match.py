@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 import os
 import sys
+import logging
 import argparse
 import tempfile
 import subprocess
@@ -10,7 +11,7 @@ import multiprocessing
 import consensus
 import swalign
 
-ARG_DEFAULTS = {'bar_len':24, 'win_len':5, 'shift':3, 'processes':1}
+ARG_DEFAULTS = {'bar_len':24, 'win_len':5, 'shift':3, 'processes':1, 'loglevel':logging.ERROR}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Try to match barcodes with sequencing errors.
 Match based on a small window in the middle of each half of the barcode.
@@ -40,15 +41,19 @@ def main(argv):
   parser.add_argument('-b', '--bar-len', type=int,
     help='Barcode length. Default: %(default)s')
   parser.add_argument('-w', '--win-len', type=int,
-    help='Window (k-mer) size. Should be a multiple of 2. Default: %(default)s')
+    help='Window (k-mer) size. Default: %(default)s')
   parser.add_argument('-s', '--shift', type=int,
     help='Bases to shift the window (number of k-mers to check). Default: %(default)s')
+  parser.add_argument('-q', '--quiet', dest='loglevel', action='store_const', const=logging.CRITICAL)
+  parser.add_argument('-v', '--verbose', dest='loglevel', action='store_const', const=logging.INFO)
+  parser.add_argument('--debug', dest='loglevel', action='store_const', const=logging.DEBUG)
   parser.add_argument('-p', '--processes', type=int,
     help='Number of worker processes to use. Default: %(default)s')
 
   args = parser.parse_args(argv[1:])
 
   assert args.processes > 0, '-p must be greater than zero'
+  logging.basicConfig(stream=sys.stderr, level=args.loglevel, format='%(message)s')
 
   starts = calc_starts(args.bar_len, args.win_len, args.shift)
 
@@ -57,6 +62,7 @@ def main(argv):
   else:
     infile = sys.stdin
 
+  logging.info('Beginning to read in data.')
   # For each window sequence (kmer), build a set of barcodes which contained it, in any of the shift
   # positions. Do this for both halves of the barcode (independently, at the moment).
   kmer_dicts = [{}, {}]
@@ -65,6 +71,7 @@ def main(argv):
   for line in infile:
     fields = line.rstrip('\r\n').split('\t')
     if len(fields) != 8:
+      logging.warn('Line contains incorrect number of fields.')
       continue
     barcode = fields[0]
     # Only do it for each unique barcode (in the sorted output, there will be runs of lines with
@@ -150,12 +157,12 @@ def delegate(workers, run_num, dict_num, kmer, barcodes):
   worker_i = run_num % len(workers)
   worker = workers[worker_i]
   if run_num >= len(workers):
-    # sys.stderr.write('Parent: Trying to receive results from worker..\n')
+    logging.info('Parent: Trying to receive results from worker..')
     results = worker.recv()
   else:
     results = None
   args = (dict_num, kmer, barcodes)
-  # sys.stderr.write('Parent: Sending new data to worker..\n')
+  logging.info('Parent: Sending new data to worker..')
   worker.send(args)
   return results
 
@@ -164,11 +171,11 @@ def delegate(workers, run_num, dict_num, kmer, barcodes):
 
 def worker_function(child_pipe):
   while True:
-    # sys.stderr.write('Worker: Listening for new data from parent..\n')
+    # logging.info('Worker: Listening for new data from parent..')
     args = child_pipe.recv()
     if args is None:
       break
-    # sys.stderr.write('Worker: Sending results back to parent..\n')
+    # logging.info('Worker: Sending results back to parent..')
     child_pipe.send(process_barcodes(*args))
 
 
@@ -219,7 +226,7 @@ def read_fasta(fasta, upper=False):
 
 def get_similarity(seq1, seq2):
   align = swalign.smith_waterman(seq1, seq2)
-  # sys.stderr.write(align.target+'\n'+align.query+'\n')
+  logging.debug(align.target+'\n'+align.query)
   return align.matches / len(align.query)
 
 
