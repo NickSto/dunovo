@@ -93,13 +93,12 @@ def main(argv):
     # NOTE: Coordinates here are 0-based (0 is the first base in the sequence).
     extended_dist = extend_dist(RAW_DISTRIBUTION)
     proportional_dist = compile_dist(extended_dist)
-    #TODO: Clean up "fragment" and "read" terminology. Also, "mutation" and "error".
     n_frags = 0
-    for fragment in fastqreader.FastqReadGenerator(frag_file):
+    for raw_fragment in fastqreader.FastqReadGenerator(frag_file):
       n_frags += 1
       if n_frags > args.n_frags:
         break
-      chrom, id_num, start, stop = parse_read_id(fragment.id)
+      chrom, id_num, start, stop = parse_read_id(raw_fragment.id)
       # Step 2: Determine how many reads to produce from each fragment.
       # - Use random.random() and divide the range 0-1 into segments of sizes proportional to
       #   the likelihood of each family size.
@@ -119,32 +118,32 @@ def main(argv):
       subtree2 = tree.get('child2')
       add_pcr_errors(subtree1, args.read_len, args.pcr_error, args.indel_rate, args.extension_rate)
       add_pcr_errors(subtree2, args.read_len, args.pcr_error, args.indel_rate, args.extension_rate)
-      apply_pcr_errors(tree, fragment.seq)
-      reads = get_final_fragments(tree)
+      apply_pcr_errors(tree, raw_fragment.seq)
+      fragments = get_final_fragments(tree)
       mutation_lists = {}
       get_mutation_lists(tree, mutation_lists, [])
 
       # Step 4: Introduce sequencing errors.
-      for read_id, read in reads.items():
-        mutation_list = mutation_lists[read_id]
+      for frag_id, frag_seq in fragments.items():
+        mutation_list = mutation_lists[frag_id]
         for mutation in generate_mutations(args.read_len, args.seq_error, args.indel_rate,
                                            args.extension_rate):
           mutation_list.append(mutation)
-          read = apply_mutation(mutation, read)
-        reads[read_id] = read[:args.read_len]
+          frag_seq = apply_mutation(mutation, frag_seq)
+        fragments[frag_id] = frag_seq[:args.read_len]
       #TODO: Add barcodes and invariant sequences.
 
       # Print family.
-      for read_id, read in reads.items():
-        read_name = '{}-{}-{}'.format(chrom, id_num, read_id)
+      for frag_id, frag_seq in fragments.items():
+        read_name = '{}-{}-{}'.format(chrom, id_num, frag_id)
         if args.mutations:
           # Print mutations to log file.
-          mutation_list = mutation_lists[read_id]
+          mutation_list = mutation_lists[frag_id]
           log_mutations(args.mutations, mutation_list, read_name, chrom, start, stop)
         if args.out_format == 'fasta':
-          print('>'+read_name, read, sep='\n')
+          print('>'+read_name, frag_seq, sep='\n')
         elif args.out_format == 'fastq':
-          print('@'+read_name, read, '+', 'I' * len(read), sep='\n')
+          print('@'+read_name, frag_seq, '+', 'I' * len(frag_seq), sep='\n')
 
   finally:
     try:
@@ -212,14 +211,15 @@ def parse_read_id(read_id):
   return chrom, id_num, start, stop
 
 
-def generate_mutations(read_len, error_rate, indel_rate, extension_rate):
-  """Generate all the mutations that occur over the length of a read."""
+#TODO: Clean up "mutation" vs "error" terminology.
+def generate_mutations(seq_len, error_rate, indel_rate, extension_rate):
+  """Generate all the mutations that occur over the length of a sequence."""
   i = 0
-  while i <= read_len:
+  while i <= seq_len:
     if random.random() < error_rate:
       mtype, alt = make_mutation(indel_rate, extension_rate)
       # Allow mutation after the last base only if it's an insertion.
-      if i < read_len or mtype == 'ins':
+      if i < seq_len or mtype == 'ins':
         yield {'coord':i, 'type':mtype, 'alt':alt}
       # Compensate for length variations to keep i tracking the original read's base coordinates.
       if mtype == 'ins':
@@ -307,8 +307,8 @@ def apply_pcr_errors(subtree, seq):
 
 
 def get_final_fragments(tree):
-  """Walk to the leaf nodes of the tree and get the post-PCR sequences of all the reads.
-  Returns a dict mapping read id number to the sequences."""
+  """Walk to the leaf nodes of the tree and get the post-PCR sequences of all the fragments.
+  Returns a dict mapping fragment id number to the sequences."""
   fragments = {}
   nodes = [tree]
   while nodes:
@@ -328,7 +328,7 @@ def get_mutation_lists(subtree, mut_lists, mut_list1):
   """Compile the list of mutations that each fragment has undergone in PCR.
   To call from the root, give {} and [] as the last two arguments.
   No return value. Its result will be in the mut_lists dict passed as the second argument:
-  a mapping between read id's and lists of mutations."""
+  a mapping between fragment id's and lists of mutations."""
   node = subtree
   while node:
     mut_list1.extend(node.get('errors', ()))
@@ -354,36 +354,36 @@ def get_one_pcr_tree(n_reads, n_cycles, max_tries):
 
 
 def build_pcr_tree(n_reads, n_cycles):
-  """Create a simulated descent lineage of how all the PCR reads are related.
+  """Create a simulated descent lineage of how all the final PCR fragments are related.
   Each node represents a fragment molecule at one stage of PCR. Each node is a dict containing the
   fragment's children (other nodes) ('child1' and 'child2'), the PCR cycle number ('cycle'), and,
-  at the leaves, a unique id number for each final read.
+  at the leaves, a unique id number for each final fragment.
   Returns a list of root nodes. Usually there will only be one, but about 1-3% of the time it fails
   to unify the subtrees and results in a broken tree.
   """
   #TODO: Make it always return a single tree.
-  # Begin a branch for each of the reads. These are the leaf nodes. We'll work backward from these,
-  # simulating the points at which they share ancestors, eventually coalescing into the single
-  # (root) ancestor.
+  # Begin a branch for each of the fragments. These are the leaf nodes. We'll work backward from
+  # these, simulating the points at which they share ancestors, eventually coalescing into the
+  # single (root) ancestor.
   branches = []
-  for read_num in range(n_reads):
-    branches.append({'cycle':n_cycles-1, 'id':read_num})
+  for frag_id in range(n_reads):
+    branches.append({'cycle':n_cycles-1, 'id':frag_id})
   # Build up all the branches in parallel. Start from the second-to-last PCR cycle.
   for cycle in reversed(range(n_cycles-1)):
-    # Probability of 2 reads sharing an ancestor at cycle c is 1/2^c.
+    # Probability of 2 fragments sharing an ancestor at cycle c is 1/2^c.
     prob = 1/2**cycle
-    read_i = 0
-    while read_i < len(branches):
-      current_root = branches[read_i]
-      # Does the current read share this ancestor with any of the other reads?
-      # numpy.random.binomial() is a fast way to simulate going through every other read and
+    frag_i = 0
+    while frag_i < len(branches):
+      current_root = branches[frag_i]
+      # Does the current fragment share this ancestor with any of the other fragments?
+      # numpy.random.binomial() is a fast way to simulate going through every other fragment and
       # asking if random.random() < prob.
       shared = numpy.random.binomial(len(branches)-1, prob)
       if shared == 0:
         # No branch point here. Just add another level to the lineage.
-        branches[read_i] = {'cycle':cycle, 'child1':current_root}
+        branches[frag_i] = {'cycle':cycle, 'child1':current_root}
       else:
-        # Pick a random other read to share this ancestor with.
+        # Pick a random other fragment to share this ancestor with.
         # Make a list of candidates to pick from.
         candidates = []
         for candidate_i, candidate in enumerate(branches):
@@ -397,23 +397,23 @@ def build_pcr_tree(n_reads, n_cycles):
         if candidates:
           relative_i = random.choice(candidates)
           relative = branches[relative_i]
-          # Have we already passed this read on this cycle?
+          # Have we already passed this fragmentfragment on this cycle?
           if relative['cycle'] == cycle:
-            # If we've already passed it, we're looking at the read's parent. We want the child.
+            # If we've already passed it, we're looking at the fragment's parent. We want the child.
             relative = relative['child1']
-          # Join the lineages of our current read and the relative to a new parent.
+          # Join the lineages of our current fragment and the relative to a new parent.
           #TODO: Sometimes, we end up matching up subtrees of different depths. But the discrepancy
           #      is rarely greater than 1. Figure out why.
           assert current_root['cycle'] - relative['cycle'] < 3, ('cycle: {}, current_root: {}, '
-            'relative: {}, read_i: {}, relative_i: {}, branches: {}, candidates: {}, shared: {}'
-            .format(cycle, current_root['cycle'], relative['cycle'], read_i, relative_i,
+            'relative: {}, frag_i: {}, relative_i: {}, branches: {}, candidates: {}, shared: {}'
+            .format(cycle, current_root['cycle'], relative['cycle'], frag_i, relative_i,
                     len(branches), len(candidates), shared))
-          branches[read_i] = {'cycle':cycle, 'child1':current_root, 'child2':relative}
+          branches[frag_i] = {'cycle':cycle, 'child1':current_root, 'child2':relative}
           # Remove the relative from the list of lineages.
           del(branches[relative_i])
-          if relative_i < read_i:
-            read_i -= 1
-      read_i += 1
+          if relative_i < frag_i:
+            frag_i -= 1
+      frag_i += 1
   return branches
 
 
