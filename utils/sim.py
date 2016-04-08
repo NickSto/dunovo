@@ -93,7 +93,7 @@ def main(argv):
       n_frags += 1
       if n_frags > args.n_frags:
         break
-      orig_id, id_num, start, stop = parse_read_id(fragment.id)
+      chrom, id_num, start, stop = parse_read_id(fragment.id)
       # Step 2: Determine how many reads to produce from each fragment.
       # - Use random.random() and divide the range 0-1 into segments of sizes proportional to
       #   the likelihood of each family size.
@@ -129,7 +129,7 @@ def main(argv):
       count = 0
       for read in reads:
         count += 1
-        print('@{}-{}-{}'.format(orig_id, id_num, count), read, '+', 'I' * len(read), sep='\n')
+        print('@{}-{}-{}'.format(chrom, id_num, count), read, '+', 'I' * len(read), sep='\n')
 
   finally:
     try:
@@ -188,13 +188,13 @@ def compile_dist(raw_dist):
 def parse_read_id(read_id):
   match = re.search(WGSIM_ID_REGEX, read_id)
   if match:
-    orig_id = match.group(1)
+    chrom = match.group(1)
     start = match.group(2)
     stop = match.group(3)
     id_num = match.group(4)
   else:
-    orig_id, id_num, start, stop = read_id, None, None, None
-  return orig_id, id_num, start, stop
+    chrom, id_num, start, stop = read_id, None, None, None
+  return chrom, id_num, start, stop
 
 
 def generate_mutations(read_len, error_rate, indel_rate, extension_rate):
@@ -232,15 +232,19 @@ def make_mutation(indel_rate, extension_rate):
       else:
         alt += 1
   else:
-    # What is the new base for the SNP?
-    mtype = 'snp'
+    # What is the new base for the SNV?
+    mtype = 'snv'
     alt = get_rand_base()
   return mtype, alt
 
 
+def get_rand_base():
+  return random.choice(('A', 'C', 'G', 'T'))
+
+
 def apply_mutation(mut, seq):
   i = mut['coord']
-  if mut['type'] == 'snp':
+  if mut['type'] == 'snv':
     # Replace the base at "coord".
     new_seq = seq[:i] + mut['alt'] + seq[i+1:]
   else:
@@ -254,10 +258,6 @@ def apply_mutation(mut, seq):
       # Example: 'ACGTACGT' + del 2 at 4 = 'ACGTGT'
       new_seq = seq[:i] + seq[i+mut['alt']:]
   return new_seq
-
-
-def get_rand_base():
-  return random.choice(('A', 'C', 'G', 'T'))
 
 
 def add_pcr_errors(subtree, read_len, error_rate, indel_rate, extension_rate):
