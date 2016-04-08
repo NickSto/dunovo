@@ -1,10 +1,21 @@
-Du Novo
-===========
+# _Du Novo_
 
-This is a simple pipeline to process duplex sequencing data without the use of a reference sequence.
+This is a pipeline for processing of duplex sequencing data without the use of a reference genome.
 
 The pipeline was designed for use with the duplex method described in [Kennedy *et al.* 2014](https://dx.doi.org/10.1038/nprot.2014.170), but the assumptions are relatively minimal, so you should be able to apply it to variants of the protocol.
 
+## Using _Du Novo_
+
+_Du Novo_ can be used in one of two ways:
+
+ * via Galaxy
+ * on the command line
+
+## Running _Du Novo_ from Galaxy
+
+We created a comprehensive [tutorial](https://github.com/galaxyproject/dunovo/wiki) explaining all aspects of interactive use of _De Novo_ from within [Galaxy](http://usegalaxy.org).
+
+## Running _Du Novo_ on the command line
 
 ### Requirements
 
@@ -14,9 +25,13 @@ All known requirements are below. Version numbers in parentheses are what the de
 
 * [MAFFT](http://mafft.cbrc.jp/alignment/software/) (v7.123b)
 * [Python](https://www.python.org/) (**2.7**)  
-And standard unix tools:
-* [gcc](https://gcc.gnu.org/) (4.8.4), [make](https://www.gnu.org/software/make/) (3.81), [bash](https://www.gnu.org/software/bash/bash.html) (4.0), [awk](https://www.gnu.org/software/gawk/) (4.0.1), [paste](https://www.gnu.org/software/coreutils/coreutils.html) (8.21), [sort](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
-
+* And standard unix tools:
+ -  [gcc](https://gcc.gnu.org/) (4.8.4)
+ -  [make](https://www.gnu.org/software/make/) (3.81)
+ -  [bash](https://www.gnu.org/software/bash/bash.html) (4.0)
+ -  [awk](https://www.gnu.org/software/gawk/) (4.0.1)
+ -  [paste](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
+ -  [sort](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
 
 ### Installation
 
@@ -54,7 +69,7 @@ See all options for a given command by giving it the `-h` flag.
 
 ### Details
 
-##### 1. Sort the reads into families based on their barcodes and split the barcodes from the sequence.  
+#### 1. Sort the reads into families based on their barcodes and split the barcodes from the sequence.  
 
     $ paste reads_1.fastq reads_2.fastq \
       | paste - - - - \
@@ -66,14 +81,14 @@ This command pipeline will transform each pair of reads into a one-line record, 
 Note: This step requires your FASTQ files to have exactly 4 lines per read (no multi-line sequences). Also, in the output, the read sequence does not include the barcode or the 5bp constant sequence after it. You can customize the length of the barcode or constant sequence by setting the awk constants `TAG_LEN` and `INVARIANT` (i.e. `awk -v TAG_LEN=10 make-barcodes.awk`).
 
 
-##### 2. Do multiple sequence alignments of the read families.  
+#### 2. Do multiple sequence alignments of the read families.  
 
 `$ align_families.py families.tsv > families.msa.tsv`
 
 This step aligns each family of reads, but it processes each strand separately. It can be parallelized with the `-p` option.
 
 
-##### 3. Build duplex consensus sequences from the aligned families.  
+#### 3. Build duplex consensus sequences from the aligned families.  
 
 `$ dunovo.py families.msa.tsv > duplex.fa`
 
