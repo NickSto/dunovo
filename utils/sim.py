@@ -13,9 +13,10 @@ import argparse
 import subprocess
 import fastqreader
 
-WGSIM_ID_REGEX = r'^(.+)_\d+_(\d+)_(\d+):\d+:\d+_\d+:\d+:\d+_([0-9a-f]+)/[12]$'
-ARG_DEFAULTS = {'read_len':100, 'frag_len':400, 'n_frags':1000, 'seq_error':0.001, 'pcr_error':0.001,
-                'cycles':25, 'indel_rate':0.15, 'extension_rate':0.3, 'seed':1}
+WGSIM_ID_REGEX = r'^(.+)_(\d+)_(\d+)_\d+:\d+:\d+_\d+:\d+:\d+_([0-9a-f]+)/[12]$'
+ARG_DEFAULTS = {'read_len':100, 'frag_len':400, 'n_frags':1000, 'out_format':'fasta',
+                'seq_error':0.001, 'pcr_error':0.001, 'cycles':25, 'indel_rate':0.15,
+                'extension_rate':0.3, 'seed':1}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """"""
 
@@ -57,6 +58,10 @@ def main(argv):
     help='Fraction of errors which are indels. Default: %(default)s')
   parser.add_argument('-E', '--extension-rate', type=float,
     help='Probability an indel is extended. Default: %(default)s')
+  parser.add_argument('-O', '--out-format', choices=('fastq', 'fasta'))
+  parser.add_argument('-m', '--mutations', type=argparse.FileType('w'),
+    help='Write a log of the PCR and sequencing errors introduced to this file. Will overwrite any '
+         'existing file at this path.')
   parser.add_argument('--frag-file',
     help='A file of fragments already generated with wgsim. Use this instead of generating a new '
          'one.')
@@ -88,6 +93,7 @@ def main(argv):
     # NOTE: Coordinates here are 0-based (0 is the first base in the sequence).
     extended_dist = extend_dist(RAW_DISTRIBUTION)
     proportional_dist = compile_dist(extended_dist)
+    #TODO: Clean up "fragment" and "read" terminology. Also, "mutation" and "error".
     n_frags = 0
     for fragment in fastqreader.FastqReadGenerator(frag_file):
       n_frags += 1
@@ -115,21 +121,30 @@ def main(argv):
       add_pcr_errors(subtree2, args.read_len, args.pcr_error, args.indel_rate, args.extension_rate)
       apply_pcr_errors(tree, fragment.seq)
       reads = get_final_fragments(tree)
+      mutation_lists = {}
+      get_mutation_lists(tree, mutation_lists, [])
 
       # Step 4: Introduce sequencing errors.
-      for read_i in range(len(reads)):
-        read = reads[read_i]
+      for read_id, read in reads.items():
+        mutation_list = mutation_lists[read_id]
         for mutation in generate_mutations(args.read_len, args.seq_error, args.indel_rate,
                                            args.extension_rate):
+          mutation_list.append(mutation)
           read = apply_mutation(mutation, read)
-        reads[read_i] = read[:args.read_len]
+        reads[read_id] = read[:args.read_len]
       #TODO: Add barcodes and invariant sequences.
 
       # Print family.
-      count = 0
-      for read in reads:
-        count += 1
-        print('@{}-{}-{}'.format(chrom, id_num, count), read, '+', 'I' * len(read), sep='\n')
+      for read_id, read in reads.items():
+        read_name = '{}-{}-{}'.format(chrom, id_num, read_id)
+        if args.mutations:
+          # Print mutations to log file.
+          mutation_list = mutation_lists[read_id]
+          log_mutations(args.mutations, mutation_list, read_name, chrom, start, stop)
+        if args.out_format == 'fasta':
+          print('>'+read_name, read, sep='\n')
+        elif args.out_format == 'fastq':
+          print('@'+read_name, read, '+', 'I' * len(read), sep='\n')
 
   finally:
     try:
@@ -260,6 +275,12 @@ def apply_mutation(mut, seq):
   return new_seq
 
 
+def log_mutations(mutfile, mutations, read_id, chrom, start, stop):
+  for mutation in mutations:
+    mutfile.write('{read_id}\t{chrom}\t{start}\t{stop}\t{coord}\t{type}\t{alt}\n'
+                  .format(read_id=read_id, chrom=chrom, start=start, stop=stop, **mutation))
+
+
 def add_pcr_errors(subtree, read_len, error_rate, indel_rate, extension_rate):
   """Add simulated PCR errors to a node in a tree and all its descendants."""
   # Note: The errors are intended as "errors made in creating this molecule", so don't apply this to
@@ -286,7 +307,9 @@ def apply_pcr_errors(subtree, seq):
 
 
 def get_final_fragments(tree):
-  fragments = []
+  """Walk to the leaf nodes of the tree and get the post-PCR sequences of all the reads.
+  Returns a dict mapping read id number to the sequences."""
+  fragments = {}
   nodes = [tree]
   while nodes:
     node = nodes.pop()
@@ -294,11 +317,27 @@ def get_final_fragments(tree):
     if child1:
       nodes.append(child1)
     else:
-      fragments.append(node['seq'])
+      fragments[node['id']] = node['seq']
     child2 = node.get('child2')
     if child2:
       nodes.append(child2)
   return fragments
+
+
+def get_mutation_lists(subtree, mut_lists, mut_list1):
+  """Compile the list of mutations that each fragment has undergone in PCR.
+  To call from the root, give {} and [] as the last two arguments.
+  No return value. Its result will be in the mut_lists dict passed as the second argument:
+  a mapping between read id's and lists of mutations."""
+  node = subtree
+  while node:
+    mut_list1.extend(node.get('errors', ()))
+    if 'child1' not in node:
+      mut_lists[node['id']] = mut_list1
+    if 'child2' in node:
+      mut_list2 = copy.deepcopy(mut_list1)
+      get_mutation_lists(node.get('child2'), mut_lists, mut_list2)
+    node = node.get('child1')
 
 
 def get_one_pcr_tree(n_reads, n_cycles, max_tries):
@@ -317,7 +356,8 @@ def get_one_pcr_tree(n_reads, n_cycles, max_tries):
 def build_pcr_tree(n_reads, n_cycles):
   """Create a simulated descent lineage of how all the PCR reads are related.
   Each node represents a fragment molecule at one stage of PCR. Each node is a dict containing the
-  fragment's children (other nodes) ('child1' and 'child2') and the PCR cycle number ('cycle').
+  fragment's children (other nodes) ('child1' and 'child2'), the PCR cycle number ('cycle'), and,
+  at the leaves, a unique id number for each final read.
   Returns a list of root nodes. Usually there will only be one, but about 1-3% of the time it fails
   to unify the subtrees and results in a broken tree.
   """
@@ -326,8 +366,8 @@ def build_pcr_tree(n_reads, n_cycles):
   # simulating the points at which they share ancestors, eventually coalescing into the single
   # (root) ancestor.
   branches = []
-  for read in range(n_reads):
-    branches.append({'cycle':n_cycles-1})
+  for read_num in range(n_reads):
+    branches.append({'cycle':n_cycles-1, 'id':read_num})
   # Build up all the branches in parallel. Start from the second-to-last PCR cycle.
   for cycle in reversed(range(n_cycles-1)):
     # Probability of 2 reads sharing an ancestor at cycle c is 1/2^c.
