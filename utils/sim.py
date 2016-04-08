@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 from __future__ import division
 from __future__ import print_function
+import re
 import os
 import sys
 import copy
 import numpy
 import bisect
 import random
-import shutil
 import tempfile
 import argparse
 import subprocess
 import fastqreader
 
+WGSIM_ID_REGEX = r'^(.+)_\d+_(\d+)_(\d+):\d+:\d+_\d+:\d+:\d+_([0-9a-f]+)/[12]$'
 ARG_DEFAULTS = {'read_len':100, 'frag_len':400, 'n_frags':1000, 'seq_error':0.001, 'pcr_error':0.001,
                 'cycles':25, 'indel_rate':0.15, 'extension_rate':0.3, 'seed':1}
 USAGE = "%(prog)s [options]"
@@ -85,7 +86,6 @@ def main(argv):
                   '-X', args.extension_rate, '-1', args.frag_len, args.ref, frag_file, os.devnull)
 
     # NOTE: Coordinates here are 0-based (0 is the first base in the sequence).
-    count = 0
     extended_dist = extend_dist(RAW_DISTRIBUTION)
     proportional_dist = compile_dist(extended_dist)
     n_frags = 0
@@ -93,6 +93,7 @@ def main(argv):
       n_frags += 1
       if n_frags > args.n_frags:
         break
+      orig_id, id_num, start, stop = parse_read_id(fragment.id)
       # Step 2: Determine how many reads to produce from each fragment.
       # - Use random.random() and divide the range 0-1 into segments of sizes proportional to
       #   the likelihood of each family size.
@@ -120,16 +121,15 @@ def main(argv):
         read = reads[read_i]
         for mutation in generate_mutations(args.read_len, args.seq_error, args.indel_rate,
                                            args.extension_rate):
-          #TODO: Note that an indel earlier in the read will mean later indels won't be inserted at
-          #      the originally intended coordinate. Fix?
           read = apply_mutation(mutation, read)
         reads[read_i] = read[:args.read_len]
       #TODO: Add barcodes and invariant sequences.
 
       # Print family.
+      count = 0
       for read in reads:
         count += 1
-        print('>'+str(count), read, '+', 'I' * len(read), sep='\n')
+        print('@{}-{}-{}'.format(orig_id, id_num, count), read, '+', 'I' * len(read), sep='\n')
 
   finally:
     try:
@@ -185,17 +185,33 @@ def compile_dist(raw_dist):
   return proportional_dist
 
 
+def parse_read_id(read_id):
+  match = re.search(WGSIM_ID_REGEX, read_id)
+  if match:
+    orig_id = match.group(1)
+    start = match.group(2)
+    stop = match.group(3)
+    id_num = match.group(4)
+  else:
+    orig_id, id_num, start, stop = read_id, None, None, None
+  return orig_id, id_num, start, stop
+
+
 def generate_mutations(read_len, error_rate, indel_rate, extension_rate):
   """Generate all the mutations that occur over the length of a read."""
-  for i in range(read_len):
+  i = 0
+  while i <= read_len:
     if random.random() < error_rate:
       mtype, alt = make_mutation(indel_rate, extension_rate)
-      yield {'coord':i, 'type':mtype, 'alt':alt}
-  # Allow for an insertion after the last base.
-  if random.random() < error_rate:
-    mtype, alt = make_mutation(indel_rate, extension_rate)
-    if mtype == 'ins':
-      yield {'coord':i+1, 'type':mtype, 'alt':alt}
+      # Allow mutation after the last base only if it's an insertion.
+      if i < read_len or mtype == 'ins':
+        yield {'coord':i, 'type':mtype, 'alt':alt}
+      # Compensate for length variations to keep i tracking the original read's base coordinates.
+      if mtype == 'ins':
+        i += len(alt)
+      elif mtype == 'del':
+        i -= alt
+    i += 1
 
 
 def make_mutation(indel_rate, extension_rate):
@@ -232,8 +248,10 @@ def apply_mutation(mut, seq):
     # This goes agains the VCF convention, but it allows deleting the first and last base, as well
     # as inserting before and after the sequence without as much special-casing.
     if mut['type'] == 'ins':
+      # Example: 'ACGTACGT' + ins 'GC' at 4 = 'ACGTGCACGT'
       new_seq = seq[:i] + mut['alt'] + seq[i:]
     else:
+      # Example: 'ACGTACGT' + del 2 at 4 = 'ACGTGT'
       new_seq = seq[:i] + seq[i+mut['alt']:]
   return new_seq
 
