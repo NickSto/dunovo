@@ -83,6 +83,7 @@ int **get_votes_simple(char *align[], int n_seqs, int seq_len) {
 }
 
 
+//  Tally votes for each base, ignoring bases with a quality score below "thres".
 int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char thres) {
   int **votes = init_votes(seq_len);
   int *window = malloc(sizeof(int) * WIN_LEN * 2);
@@ -124,6 +125,63 @@ int **get_votes_qual(char *align[], char *quals[], int n_seqs, int seq_len, char
           break;
         case '-':
           votes[j][5]++;
+          break;
+      }
+    }
+  }
+
+  free(window);
+  return votes;
+}
+
+
+/* Tally votes for each base, weighting by the PHRED score of the base.
+ * This is based on the theory of PHRED scores representing the literal probability of the base call
+ * being erroneous. Thus, if two reads show a C at a position, both with PHRED 20 (1/100 chance of
+ * error), then the chances of them both being wrong are 1/100 * 1/100 = 1/10000 (PHRED 40).
+ * So, theoretically and intuitively, it makes sense to trust two PHRED 20 C's over one PHRED 30 A.
+ * This seems better than arbitrarily deciding not to consider bases below a PHRED score threshold.
+ * How to decide when not to call the base? We could just say that if no base's score total is above
+ * a certain threshold, we call it an N. Theoretically, this threshold is the confidence we want in
+ * our final base calls. This could even replace the arbitrary 3 reads for a consensus threshold.
+ */
+int **get_votes_weighted(char *align[], char *quals[], int n_seqs, int seq_len) {
+  int **votes = init_votes(seq_len);
+  int *window = malloc(sizeof(int) * WIN_LEN * 2);
+  int win_edge;
+
+  // Tally votes for each base.
+  char qual;
+  int i, j;
+  for (i = 0; i < n_seqs; i++) {
+    win_edge = init_gap_qual_window(window, quals[i], seq_len);
+    for (j = 0; j < seq_len; j++) {
+      // Figure out the quality score of the base (or gap).
+      if (align[i][j] == '-') {
+        qual = get_gap_qual(window);
+      } else {
+        win_edge = push_qual(window, win_edge, quals[i], seq_len);
+        qual = quals[i][j];
+      }
+      // N.B.: Could write this without hardcoded literals, but it's about 40% slower.
+      switch (toupper(align[i][j])) {
+        case 'A':
+          votes[j][0] += qual;
+          break;
+        case 'C':
+          votes[j][1] += qual;
+          break;
+        case 'G':
+          votes[j][2] += qual;
+          break;
+        case 'T':
+          votes[j][3] += qual;
+          break;
+        case 'N':
+          votes[j][4] += qual;
+          break;
+        case '-':
+          votes[j][5] += qual;
           break;
       }
     }
