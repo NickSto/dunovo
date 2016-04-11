@@ -2,7 +2,7 @@ import os
 import ctypes
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
-seqtools = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'seqtoolsc.so'))
+seqtools = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libseqtools.so'))
 seqtools.get_revcomp.restype = ctypes.c_char_p
 seqtools.transfer_gaps.restype = ctypes.c_char_p
 

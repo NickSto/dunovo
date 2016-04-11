@@ -16,5 +16,5 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 The following files contain software governed by a difference license,
 which can be found in those files:
-swalignc.c
-swalignc.h
+swalign.c
+swalign.h

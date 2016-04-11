@@ -2,7 +2,7 @@ import os
 import ctypes
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
-consensus = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'consensusc.so'))
+consensus = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libconsensus.so'))
 consensus.get_consensus.restype = ctypes.c_char_p
 consensus.get_consensus_duplex.restype = ctypes.c_char_p
 consensus.build_consensus_duplex_simple.restype = ctypes.c_char_p

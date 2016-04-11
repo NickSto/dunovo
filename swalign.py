@@ -2,7 +2,7 @@ import os
 import ctypes
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
-swalign = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'swalignc.so'))
+swalign = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libswalign.so'))
 
 
 # C struct for ctypes

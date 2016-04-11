@@ -25,7 +25,7 @@
 // Note: That's an MIT license.
 // All double-commented comments below are from Nicolaus Lance Hepler.
 
-#include "swalignc.h"
+#include "swalign.h"
 
 // /* reverse a string in place, return str */
 static char* reverse(char *str) {
