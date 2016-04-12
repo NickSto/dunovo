@@ -8,17 +8,20 @@ import copy
 import numpy
 import bisect
 import random
+import string
+import numbers
 import tempfile
 import argparse
 import subprocess
 import fastqreader
 
+REVCOMP_TABLE = string.maketrans('acgtrymkbdhvACGTRYMKBDHV', 'tgcayrkmvhdbTGCAYRKMVHDB')
 WGSIM_ID_REGEX = r'^(.+)_(\d+)_(\d+)_\d+:\d+:\d+_\d+:\d+:\d+_([0-9a-f]+)/[12]$'
 ARG_DEFAULTS = {'read_len':100, 'frag_len':400, 'n_frags':1000, 'out_format':'fasta',
                 'seq_error':0.001, 'pcr_error':0.001, 'cycles':25, 'indel_rate':0.15,
-                'extension_rate':0.3, 'seed':1}
+                'extension_rate':0.3, 'seed':None, 'invariant':'TGACT', 'bar_len':12, 'fastq_qual':'I'}
 USAGE = "%(prog)s [options]"
-DESCRIPTION = """"""
+DESCRIPTION = """Simulate a duplex sequencing experiment."""
 
 RAW_DISTRIBUTION = (
   #  0     1     2     3     4     5     6     7     8     9
@@ -38,7 +41,11 @@ def main(argv):
   parser.set_defaults(**ARG_DEFAULTS)
 
   parser.add_argument('ref', metavar='ref.fa', nargs='?',
-    help='Reference sequence.')
+    help='Reference sequence. Omit if giving --frag-file.')
+  parser.add_argument('out1', type=argparse.FileType('w'),
+    help='Write final mate 1 reads to this file.')
+  parser.add_argument('out2', type=argparse.FileType('w'),
+    help='Write final mate 2 reads to this file.')
   parser.add_argument('-n', '--n-frags', type=int,
     help='The number of original fragment molecules to simulate. The final number of reads will be '
          'this multiplied by the average number of reads per family. If you provide fragments with '
@@ -58,22 +65,57 @@ def main(argv):
     help='Fraction of errors which are indels. Default: %(default)s')
   parser.add_argument('-E', '--extension-rate', type=float,
     help='Probability an indel is extended. Default: %(default)s')
-  parser.add_argument('-O', '--out-format', choices=('fastq', 'fasta'))
+  parser.add_argument('-o', '--out-format', choices=('fastq', 'fasta'))
+  parser.add_argument('--stdout', action='store_true',
+    help='Print interleaved output reads to stdout.')
   parser.add_argument('-m', '--mutations', type=argparse.FileType('w'),
     help='Write a log of the PCR and sequencing errors introduced to this file. Will overwrite any '
          'existing file at this path.')
+  parser.add_argument('-b', '--barcodes', type=argparse.FileType('w'),
+    help='Write a log of which barcodes were ligated to which fragments. Will overwrite any '
+         'existing file at this path.')
   parser.add_argument('--frag-file',
     help='A file of fragments already generated with wgsim. Use this instead of generating a new '
-         'one.')
+         'one. Note: You still have to specify the fragment length with --frag-len.')
+  parser.add_argument('-B', '--bar-len', type=int,
+    help='Length of the barcodes to generate. Default: %(default)s')
+  parser.add_argument('-I', '--invariant',
+    help='The invariant linker sequence between the barcode and sample sequence in each read. '
+         'Default: %(default)s')
+  parser.add_argument('-Q', '--fastq-qual',
+    help='The quality score to assign to all bases in FASTQ output. Give a character or PHRED '
+         'score (integer). A PHRED score will be converted using the Sanger offset (33). Default: '
+         '"%(default)s"')
   parser.add_argument('-S', '--seed', type=int,
-    help='Seed. Default: %(default)s')
+    help='Random number generator seed. By default (or, if negative), a random, 32-bit seed will '
+         'be generated and logged to stdout.')
 
+  # Parse and interpret arguments.
   args = parser.parse_args(argv[1:])
+  assert args.ref or args.frag_file, 'You must provide either a reference or fragments file.'
+  if args.seed is None:
+    seed = random.randint(0, 2**31-1)
+    sys.stderr.write('seed: {}\n'.format(seed))
+    random.seed(seed)
+  else:
+    random.seed(args.seed)
+  if args.stdout:
+    out1 = sys.stdout
+    out2 = sys.stdout
+  else:
+    out1 = args.out1
+    out2 = args.out2
+  if isinstance(args.fastq_qual, numbers.Integral):
+    assert args.fastq_qual >= 0, '--fastq-qual cannot be negative.'
+    fastq_qual = chr(args.fastq_qual + 33)
+  elif isinstance(args.fastq_qual, basestring):
+    assert len(args.fastq_qual) == 1, '--fastq-qual cannot be more than a single character.'
+    fastq_qual = args.fastq_qual
+  else:
+    raise AssertionError('--fastq-qual must be a positive integer or single character.')
+  qual_line = fastq_qual * args.read_len
 
-  assert args.ref or args.frag_file
-
-  # Overview: wgsim "reads" (fragments) from the reference with 0 mutation rate, then wgsim actual
-  # duplex reads from each fragment.
+  invariant_rc = get_revcomp(args.invariant)
 
   # Create a temporary director to do our work in. Then work inside a try so we can finally remove
   # the directory no matter what exceptions are encountered.
@@ -87,6 +129,8 @@ def main(argv):
       frag_file = tmpfile.name
       #TODO: Check exit status
       #TODO: Check for wgsim on the PATH.
+      # Set error and mutation rates to 0 to just slice sequences out of the reference without
+      # modification.
       run_command('wgsim', '-e', '0', '-r', '0', '-d', '0', '-R', args.indel_rate, '-N', args.n_frags,
                   '-X', args.extension_rate, '-1', args.frag_len, args.ref, frag_file, os.devnull)
 
@@ -99,6 +143,11 @@ def main(argv):
       if n_frags > args.n_frags:
         break
       chrom, id_num, start, stop = parse_read_id(raw_fragment.id)
+      barcode1 = get_rand_seq(args.bar_len)
+      barcode2 = get_rand_seq(args.bar_len)
+      barcode2_rc = get_revcomp(barcode2)
+      raw_frag_full = barcode1 + args.invariant + raw_fragment.seq + invariant_rc + barcode2
+
       # Step 2: Determine how many reads to produce from each fragment.
       # - Use random.random() and divide the range 0-1 into segments of sizes proportional to
       #   the likelihood of each family size.
@@ -116,34 +165,47 @@ def main(argv):
       # Add errors to all children of original fragment.
       subtree1 = tree.get('child1')
       subtree2 = tree.get('child2')
-      add_pcr_errors(subtree1, args.read_len, args.pcr_error, args.indel_rate, args.extension_rate)
-      add_pcr_errors(subtree2, args.read_len, args.pcr_error, args.indel_rate, args.extension_rate)
-      apply_pcr_errors(tree, raw_fragment.seq)
+      #TODO: Only simulate errors on portions of fragment that will become reads.
+      add_pcr_errors(subtree1, '+', len(raw_frag_full), args.pcr_error, args.indel_rate, args.extension_rate)
+      add_pcr_errors(subtree2, '-', len(raw_frag_full), args.pcr_error, args.indel_rate, args.extension_rate)
+      apply_pcr_errors(tree, raw_frag_full)
       fragments = get_final_fragments(tree)
-      mutation_lists = {}
-      get_mutation_lists(tree, mutation_lists, [])
+      add_mutation_lists(tree, fragments, [])
 
       # Step 4: Introduce sequencing errors.
-      for frag_id, frag_seq in fragments.items():
-        mutation_list = mutation_lists[frag_id]
+      for fragment in fragments.values():
         for mutation in generate_mutations(args.read_len, args.seq_error, args.indel_rate,
                                            args.extension_rate):
-          mutation_list.append(mutation)
-          frag_seq = apply_mutation(mutation, frag_seq)
-        fragments[frag_id] = frag_seq[:args.read_len]
-      #TODO: Add barcodes and invariant sequences.
+          fragment['mutations'].append(mutation)
+          fragment['seq'] = apply_mutation(mutation, fragment['seq'])
 
+      # Print barcodes to log file.
+      if args.barcodes:
+        args.barcodes.write('{}-{}\t{}\t{}\n'.format(chrom, id_num, barcode1, barcode2_rc))
       # Print family.
-      for frag_id, frag_seq in fragments.items():
-        read_name = '{}-{}-{}'.format(chrom, id_num, frag_id)
+      for frag_id in sorted(fragments.keys()):
+        fragment = fragments[frag_id]
+        read_id = '{}-{}-{}'.format(chrom, id_num, frag_id)
+        # Print mutations to log file.
         if args.mutations:
-          # Print mutations to log file.
-          mutation_list = mutation_lists[frag_id]
-          log_mutations(args.mutations, mutation_list, read_name, chrom, start, stop)
+          read1_muts = get_mutations_subset(fragment['mutations'], 0, args.read_len)
+          read2_muts = get_mutations_subset(fragment['mutations'], 0, args.read_len, revcomp=True,
+                                            seqlen=len(fragment['seq']))
+          if fragment['strand'] == '-':
+            read1_muts, read2_muts = read2_muts, read1_muts
+          log_mutations(args.mutations, read1_muts, read_id+'/1', chrom, start, stop)
+          log_mutations(args.mutations, read2_muts, read_id+'/2', chrom, start, stop)
+        frag_seq = fragment['seq']
+        read1_seq = frag_seq[:args.read_len]
+        read2_seq = get_revcomp(frag_seq[len(frag_seq)-args.read_len:])
+        if fragment['strand'] == '-':
+          read1_seq, read2_seq = read2_seq, read1_seq
         if args.out_format == 'fasta':
-          print('>'+read_name, frag_seq, sep='\n')
+          out1.write('>{}\n{}\n'.format(read_id, read1_seq))
+          out2.write('>{}\n{}\n'.format(read_id, read2_seq))
         elif args.out_format == 'fastq':
-          print('@'+read_name, frag_seq, '+', 'I' * len(frag_seq), sep='\n')
+          out1.write('@{}\n{}\n+\n{}\n'.format(read_id, read1_seq, qual_line))
+          out2.write('@{}\n{}\n+\n{}\n'.format(read_id, read2_seq, qual_line))
 
   finally:
     try:
@@ -253,8 +315,16 @@ def make_mutation(indel_rate, extension_rate):
   return mtype, alt
 
 
-def get_rand_base():
-  return random.choice(('A', 'C', 'G', 'T'))
+def get_rand_base(bases='ACGT'):
+  return random.choice(bases)
+
+
+def get_rand_seq(seq_len):
+  return ''.join([get_rand_base() for i in range(seq_len)])
+
+
+def get_revcomp(seq):
+  return seq.translate(REVCOMP_TABLE)[::-1]
 
 
 def apply_mutation(mut, seq):
@@ -275,13 +345,57 @@ def apply_mutation(mut, seq):
   return new_seq
 
 
+def get_mutations_subset(mutations_old, start, length, revcomp=False, seqlen=None):
+  """Get a list of the input mutations which are within a certain region.
+  The output list maintains the order in the input list, only filtering out
+  mutations outside the specified region.
+  "start" is the start of the region (0-based). If revcomp, this start should be
+  in the coordinate system of the reverse-complemented sequence.
+  "length" is the length of the region.
+  "revcomp" causes the mutations to be converted to their reverse complements, and
+  the "start" to refer to the reverse complement sequence's coordinates. The order
+  of the mutations is unchanged, though.
+  "seqlen" is the length of the sequence the mutations occurred in. This is only
+  needed when revcomp is True, to convert coordinates to the reverse complement
+  coordinate system."""
+  stop = start + length
+  mutations_new = []
+  for mutation in mutations_old:
+    if revcomp:
+      mutation = get_mutation_revcomp(mutation, seqlen)
+    if start <= mutation['coord'] < stop:
+      mutations_new.append(mutation)
+    elif mutation['coord'] == stop and mutation['type'] == 'ins':
+      # Allow insertions at the last coordinate.
+      mutations_new.append(mutation)
+  return mutations_new
+
+
+def get_mutation_revcomp(mut, seqlen):
+  """Convert a mutation to its reverse complement.
+  "seqlen" is the length of the sequence the mutation is being applied to. Needed
+  to convert the coordinate to a coordinate system starting at the end of the
+  sequence."""
+  mut_rc = {'type':mut['type']}
+  if mut['type'] == 'snv':
+    mut_rc['coord'] = seqlen - mut['coord'] - 1
+    mut_rc['alt'] = get_revcomp(mut['alt'])
+  elif mut['type'] == 'ins':
+    mut_rc['coord'] = seqlen - mut['coord']
+    mut_rc['alt'] = get_revcomp(mut['alt'])
+  elif mut['type'] == 'del':
+    mut_rc['coord'] = seqlen - mut['coord'] - mut['alt']
+    mut_rc['alt'] = mut['alt']
+  return mut_rc
+
+
 def log_mutations(mutfile, mutations, read_id, chrom, start, stop):
   for mutation in mutations:
     mutfile.write('{read_id}\t{chrom}\t{start}\t{stop}\t{coord}\t{type}\t{alt}\n'
                   .format(read_id=read_id, chrom=chrom, start=start, stop=stop, **mutation))
 
 
-def add_pcr_errors(subtree, read_len, error_rate, indel_rate, extension_rate):
+def add_pcr_errors(subtree, strand, read_len, error_rate, indel_rate, extension_rate):
   """Add simulated PCR errors to a node in a tree and all its descendants."""
   # Note: The errors are intended as "errors made in creating this molecule", so don't apply this to
   # the root node, since that is supposed to be the original, unaltered molecule.
@@ -290,8 +404,9 @@ def add_pcr_errors(subtree, read_len, error_rate, indel_rate, extension_rate):
   # this function to process all second children.
   node = subtree
   while node:
+    node['strand'] = strand
     node['errors'] = list(generate_mutations(read_len, error_rate, indel_rate, extension_rate))
-    add_pcr_errors(node.get('child2'), read_len, error_rate, indel_rate, extension_rate)
+    add_pcr_errors(node.get('child2'), strand, read_len, error_rate, indel_rate, extension_rate)
     node = node.get('child1')
 
 
@@ -308,7 +423,8 @@ def apply_pcr_errors(subtree, seq):
 
 def get_final_fragments(tree):
   """Walk to the leaf nodes of the tree and get the post-PCR sequences of all the fragments.
-  Returns a dict mapping fragment id number to the sequences."""
+  Returns a dict mapping fragment id number to a dict representing the fragment. Its only two keys
+  are 'seq' (the final sequence) and 'strand' ('+' or '-')."""
   fragments = {}
   nodes = [tree]
   while nodes:
@@ -317,26 +433,27 @@ def get_final_fragments(tree):
     if child1:
       nodes.append(child1)
     else:
-      fragments[node['id']] = node['seq']
+      fragments[node['id']] = {'seq':node['seq'], 'strand':node['strand']}
     child2 = node.get('child2')
     if child2:
       nodes.append(child2)
   return fragments
 
 
-def get_mutation_lists(subtree, mut_lists, mut_list1):
+def add_mutation_lists(subtree, fragments, mut_list1):
   """Compile the list of mutations that each fragment has undergone in PCR.
-  To call from the root, give {} and [] as the last two arguments.
-  No return value. Its result will be in the mut_lists dict passed as the second argument:
-  a mapping between fragment id's and lists of mutations."""
+  To call from the root, give [] as "mut_list1" and a dict mapping all existing node id's to a dict
+  as "fragments". Instead of returning the data, this will add a 'mutations' key to the dict for
+  each fragment, mapping it to a list of PCR mutations that occurred in the lineage of the fragment,
+  in chronological order."""
   node = subtree
   while node:
     mut_list1.extend(node.get('errors', ()))
     if 'child1' not in node:
-      mut_lists[node['id']] = mut_list1
+      fragments[node['id']]['mutations'] = mut_list1
     if 'child2' in node:
       mut_list2 = copy.deepcopy(mut_list1)
-      get_mutation_lists(node.get('child2'), mut_lists, mut_list2)
+      add_mutation_lists(node.get('child2'), fragments, mut_list2)
     node = node.get('child1')
 
 
