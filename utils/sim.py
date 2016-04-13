@@ -19,7 +19,7 @@ REVCOMP_TABLE = string.maketrans('acgtrymkbdhvACGTRYMKBDHV', 'tgcayrkmvhdbTGCAYR
 WGSIM_ID_REGEX = r'^(.+)_(\d+)_(\d+)_\d+:\d+:\d+_\d+:\d+:\d+_([0-9a-f]+)/[12]$'
 ARG_DEFAULTS = {'read_len':100, 'frag_len':400, 'n_frags':1000, 'out_format':'fasta',
                 'seq_error':0.001, 'pcr_error':0.001, 'cycles':25, 'indel_rate':0.15,
-                'extension_rate':0.3, 'seed':None, 'invariant':'TGACT', 'bar_len':12, 'fastq_qual':'I'}
+                'ext_rate':0.3, 'seed':None, 'invariant':'TGACT', 'bar_len':12, 'fastq_qual':'I'}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Simulate a duplex sequencing experiment."""
 
@@ -29,7 +29,11 @@ RAW_DISTRIBUTION = (
   #  0,  100,   36,   31,   27,   22,   17,   12,    7,  4.3,
   #2.4,  1.2,  0.6,  0.3,  0.2, 0.15,  0.1, 0.07, 0.05, 0.03,
   # High singletons, but then a second peak around 10. From Christine plasmid (2015-10-06 report).
-     0,  100, 5.24, 3.67, 3.50, 3.67, 3.85, 4.02, 4.11, 4.20,
+  #    0,  100, 5.24, 3.67, 3.50, 3.67, 3.85, 4.02, 4.11, 4.20,
+  # 4.17, 4.10, 4.00, 3.85, 3.69, 3.55, 3.38, 3.15, 2.92, 2.62,
+  # 2.27, 2.01, 1.74, 1.56, 1.38, 1.20, 1.02, 0.85,
+  # Same as above, but low singletons, 2's, and 3's (rely on errors to fill out those).
+     0,    1,    2,    3, 3.50, 3.67, 3.85, 4.02, 4.11, 4.20,
   4.17, 4.10, 4.00, 3.85, 3.69, 3.55, 3.38, 3.15, 2.92, 2.62,
   2.27, 2.01, 1.74, 1.56, 1.38, 1.20, 1.02, 0.85,
 )
@@ -46,25 +50,6 @@ def main(argv):
     help='Write final mate 1 reads to this file.')
   parser.add_argument('out2', type=argparse.FileType('w'),
     help='Write final mate 2 reads to this file.')
-  parser.add_argument('-n', '--n-frags', type=int,
-    help='The number of original fragment molecules to simulate. The final number of reads will be '
-         'this multiplied by the average number of reads per family. If you provide fragments with '
-         '--frag-file, the script will still only read in the number specified here. Default: '
-         '%(default)s')
-  parser.add_argument('-r', '--read-len', type=int,
-    help='Default: %(default)s')
-  parser.add_argument('-f', '--frag-len', type=int,
-    help='Default: %(default)s')
-  parser.add_argument('-s', '--seq-error', type=float,
-    help='Sequencing error rate per base (0-1 proportion, not percent). Default: %(default)s')
-  parser.add_argument('-p', '--pcr-error', type=float,
-    help='PCR error rate per base (0-1 proportion, not percent). Default: %(default)s')
-  parser.add_argument('-c', '--cycles', type=int,
-    help='Number of PCR cycles to simulate. Default: %(default)s')
-  parser.add_argument('-i', '--indel-rate', type=float,
-    help='Fraction of errors which are indels. Default: %(default)s')
-  parser.add_argument('-E', '--extension-rate', type=float,
-    help='Probability an indel is extended. Default: %(default)s')
   parser.add_argument('-o', '--out-format', choices=('fastq', 'fasta'))
   parser.add_argument('--stdout', action='store_true',
     help='Print interleaved output reads to stdout.')
@@ -75,20 +60,42 @@ def main(argv):
     help='Write a log of which barcodes were ligated to which fragments. Will overwrite any '
          'existing file at this path.')
   parser.add_argument('--frag-file',
-    help='A file of fragments already generated with wgsim. Use this instead of generating a new '
-         'one. Note: You still have to specify the fragment length with --frag-len.')
-  parser.add_argument('-B', '--bar-len', type=int,
-    help='Length of the barcodes to generate. Default: %(default)s')
-  parser.add_argument('-I', '--invariant',
-    help='The invariant linker sequence between the barcode and sample sequence in each read. '
-         'Default: %(default)s')
+    help='The path of the FASTQ file of fragments. If --ref is given, these will be generated with '
+         'wgsim and kept (normally a temporary file is used, then deleted). Note: the file will be '
+         'overwritten! If --ref is not given, then this should be a file of already generated '
+         'fragments, and they will be used instead of generating new ones.')
   parser.add_argument('-Q', '--fastq-qual',
     help='The quality score to assign to all bases in FASTQ output. Give a character or PHRED '
          'score (integer). A PHRED score will be converted using the Sanger offset (33). Default: '
          '"%(default)s"')
   parser.add_argument('-S', '--seed', type=int,
-    help='Random number generator seed. By default (or, if negative), a random, 32-bit seed will '
-         'be generated and logged to stdout.')
+    help='Random number generator seed. By default, a random, 32-bit seed will be generated and '
+         'logged to stdout.')
+  params = parser.add_argument_group('simulation parameters')
+  params.add_argument('-n', '--n-frags', type=int,
+    help='The number of original fragment molecules to simulate. The final number of reads will be '
+         'this multiplied by the average number of reads per family. If you provide fragments with '
+         '--frag-file, the script will still only read in the number specified here. Default: '
+         '%(default)s')
+  params.add_argument('-r', '--read-len', type=int,
+    help='Default: %(default)s')
+  params.add_argument('-f', '--frag-len', type=int,
+    help='Default: %(default)s')
+  params.add_argument('-s', '--seq-error', type=float,
+    help='Sequencing error rate per base (0-1 proportion, not percent). Default: %(default)s')
+  params.add_argument('-p', '--pcr-error', type=float,
+    help='PCR error rate per base (0-1 proportion, not percent). Default: %(default)s')
+  params.add_argument('-c', '--cycles', type=int,
+    help='Number of PCR cycles to simulate. Default: %(default)s')
+  params.add_argument('-i', '--indel-rate', type=float,
+    help='Fraction of errors which are indels. Default: %(default)s')
+  params.add_argument('-E', '--extension-rate', dest='ext_rate', type=float,
+    help='Probability an indel is extended. Default: %(default)s')
+  params.add_argument('-B', '--bar-len', type=int,
+    help='Length of the barcodes to generate. Default: %(default)s')
+  params.add_argument('-I', '--invariant',
+    help='The invariant linker sequence between the barcode and sample sequence in each read. '
+         'Default: %(default)s')
 
   # Parse and interpret arguments.
   args = parser.parse_args(argv[1:])
@@ -96,9 +103,9 @@ def main(argv):
   if args.seed is None:
     seed = random.randint(0, 2**31-1)
     sys.stderr.write('seed: {}\n'.format(seed))
-    random.seed(seed)
   else:
-    random.seed(args.seed)
+    seed = args.seed
+  random.seed(seed)
   if args.stdout:
     out1 = sys.stdout
     out2 = sys.stdout
@@ -127,12 +134,14 @@ def main(argv):
       frag_file = args.frag_file
     else:
       frag_file = tmpfile.name
+    if args.ref and os.path.isfile(args.ref) and os.path.getsize(args.ref):
       #TODO: Check exit status
       #TODO: Check for wgsim on the PATH.
       # Set error and mutation rates to 0 to just slice sequences out of the reference without
       # modification.
-      run_command('wgsim', '-e', '0', '-r', '0', '-d', '0', '-R', args.indel_rate, '-N', args.n_frags,
-                  '-X', args.extension_rate, '-1', args.frag_len, args.ref, frag_file, os.devnull)
+      run_command('wgsim', '-e', '0', '-r', '0', '-d', '0', '-R', args.indel_rate, '-S', seed,
+                  '-N', args.n_frags, '-X', args.ext_rate, '-1', args.frag_len,
+                  args.ref, frag_file, os.devnull)
 
     # NOTE: Coordinates here are 0-based (0 is the first base in the sequence).
     extended_dist = extend_dist(RAW_DISTRIBUTION)
@@ -161,13 +170,13 @@ def main(argv):
       #     - Important to have PCR errors shared between reads.
       # - For each read, determine which mutations it contains.
       #   - Use random.random() < mut_freq.
-      tree = get_one_pcr_tree(n_reads, args.cycles, 1000)
+      tree = get_good_pcr_tree(n_reads, args.cycles, 1000, max_diff=1)
       # Add errors to all children of original fragment.
       subtree1 = tree.get('child1')
       subtree2 = tree.get('child2')
       #TODO: Only simulate errors on portions of fragment that will become reads.
-      add_pcr_errors(subtree1, '+', len(raw_frag_full), args.pcr_error, args.indel_rate, args.extension_rate)
-      add_pcr_errors(subtree2, '-', len(raw_frag_full), args.pcr_error, args.indel_rate, args.extension_rate)
+      add_pcr_errors(subtree1, '+', len(raw_frag_full), args.pcr_error, args.indel_rate, args.ext_rate)
+      add_pcr_errors(subtree2, '-', len(raw_frag_full), args.pcr_error, args.indel_rate, args.ext_rate)
       apply_pcr_errors(tree, raw_frag_full)
       fragments = get_final_fragments(tree)
       add_mutation_lists(tree, fragments, [])
@@ -175,7 +184,7 @@ def main(argv):
       # Step 4: Introduce sequencing errors.
       for fragment in fragments.values():
         for mutation in generate_mutations(args.read_len, args.seq_error, args.indel_rate,
-                                           args.extension_rate):
+                                           args.ext_rate):
           fragment['mutations'].append(mutation)
           fragment['seq'] = apply_mutation(mutation, fragment['seq'])
 
@@ -215,7 +224,7 @@ def main(argv):
 
 
 def run_command(*command, **kwargs):
-  """Run a command:
+  """Run a command and return the exit code.
   run_command('echo', 'hello')
   Will print the command to stderr before running, unless "silent" is set to True."""
   command_strs = map(str, command)
@@ -457,17 +466,37 @@ def add_mutation_lists(subtree, fragments, mut_list1):
     node = node.get('child1')
 
 
-def get_one_pcr_tree(n_reads, n_cycles, max_tries):
-  """Return a single PCR tree from build_pcr_tree(), or fail if one cannot be found in max_tries.
-  Compensate for the bug in build_pcr_tree() that results in multiple trees sometimes."""
-  trees = []
+def check_tree_balance(subtree):
+  """Find all points in the tree where the cycles of sibling nodes is unequal, and
+  return the maximum difference."""
+  node = subtree
+  if node:
+    child1 = node.get('child1')
+    child2 = node.get('child2')
+    if child1 and child2:
+      diff = abs(child1['cycle'] - child2['cycle'])
+    else:
+      diff = 0
+    diff_child1 = check_tree_balance(child1)
+    diff_child2 = check_tree_balance(child2)
+    return max(diff, diff_child1, diff_child2)
+  else:
+    return 0
+
+
+def get_good_pcr_tree(n_reads, n_cycles, max_tries, max_diff=1):
+  """Return a single, balanced PCR tree from build_pcr_tree(), or fail if one cannot
+  be found in max_tries.
+  Compensate for bugs in build_pcr_tree() that sometimes result in multiple trees,
+  or trees with siblings from different cycles."""
   tries = 0
-  while len(trees) != 1:
+  while tries <= max_tries:
     trees = build_pcr_tree(n_reads, n_cycles)
+    if len(trees) == 1 and check_tree_balance(trees[0]) <= max_diff:
+      return trees[0]
     tries += 1
-    assert tries < max_tries, 'Could not generate a single, unified tree! (tried {} times)'.format(
-                              max_tries)
-  return trees[0]
+  raise AssertionError('Could not generate a single, balanced tree! (tried {} times)'
+                       .format(max_tries))
 
 
 def build_pcr_tree(n_reads, n_cycles):
@@ -521,10 +550,10 @@ def build_pcr_tree(n_reads, n_cycles):
           # Join the lineages of our current fragment and the relative to a new parent.
           #TODO: Sometimes, we end up matching up subtrees of different depths. But the discrepancy
           #      is rarely greater than 1. Figure out why.
-          assert current_root['cycle'] - relative['cycle'] < 3, ('cycle: {}, current_root: {}, '
-            'relative: {}, frag_i: {}, relative_i: {}, branches: {}, candidates: {}, shared: {}'
-            .format(cycle, current_root['cycle'], relative['cycle'], frag_i, relative_i,
-                    len(branches), len(candidates), shared))
+          # assert abs(current_root['cycle'] - relative['cycle']) < 3, ('cycle: {}, current_root: {},'
+          #   ' relative: {}, frag_i: {}, relative_i: {}, branches: {}, candidates: {}, shared: {}'
+          #   .format(cycle, current_root['cycle'], relative['cycle'], frag_i, relative_i,
+          #           len(branches), len(candidates), shared))
           branches[frag_i] = {'cycle':cycle, 'child1':current_root, 'child2':relative}
           # Remove the relative from the list of lineages.
           del(branches[relative_i])
