@@ -1,8 +1,11 @@
 import os
 import ctypes
+import string
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 swalign = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libswalign.so'))
+
+REVCOMP_TABLE = string.maketrans('acgtrymkbdhvACGTRYMKBDHV', 'tgcayrkmvhdbTGCAYRKMVHDB')
 
 
 # C struct for ctypes
@@ -33,12 +36,27 @@ class Align(object):
   def __init__(self, align_c):
     self.target = align_c.seqs.contents.a
     self.query = align_c.seqs.contents.b
+    # Where the first base of the target aligns on the query, in query coordinates (or 1, if <= 0).
     self.start_target = align_c.start_a
+    # Where the first base of the query aligns on the target, in target coordinates (or 1, if <= 0).
     self.start_query = align_c.start_b
+    # Where the last base of the target aligns on the query, in query coordinates.
     self.end_target = align_c.end_a
+    # Where the last base of the query aligns on the target, in target coordinates.
     self.end_query = align_c.end_b
     self.matches = align_c.matches
     self.score = align_c.score
+
+  # Provide this common function.
+  def __str__(self):
+    """Print a human-readable representation of the alignment."""
+    start_query = str(self.start_query)
+    start_target = str(self.start_target)
+    start_width = str(max(len(start_query), len(start_target)))
+    line_format = '{:'+start_width+'} {} {}'
+    output = line_format.format(start_target, self.target, self.end_target) + '\n'
+    output += line_format.format(start_query, self.query, self.end_query)
+    return output
 
 
 # Initialize functions (define types).
@@ -52,6 +70,26 @@ def smith_waterman(target, query):
   return Align(align_c)
 
 
+def smith_waterman_duplex(target, query):
+  """Smith-Waterman align query to target in both orientations and return the best.
+  Convenience function that calls smith_waterman() twice, and returns the
+  alignment with the highest score."""
+  align = smith_waterman(target, query)
+  query_rc = revcomp(query)
+  align_rc = smith_waterman(target, query_rc)
+  if align_rc.score > align.score:
+    return align_rc
+  else:
+    return align
+
+
 def revcomp(seq):
-  """WARNING: This will alter the input string in-place!"""
+  """Return the reverse complement of the input sequence.
+  Leaves the input string unaltered."""
+  return seq.translate(REVCOMP_TABLE)[::-1]
+
+
+def revcomp_inplace(seq):
+  """Convert the input sequence to its reverse complement.
+  WARNING: This will alter the input string in-place!"""
   swalign.revcomp(seq)
