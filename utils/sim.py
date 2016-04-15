@@ -303,9 +303,12 @@ def generate_mutations(seq_len, error_rate, indel_rate, extension_rate):
 def make_mutation(indel_rate, extension_rate):
   """Simulate a random mutation."""
   # Is it an indel?
-  if random.random() < indel_rate:
+  rand = random.random()
+  if rand < indel_rate:
     # Is it an insertion or deletion? Decide, then initialize it.
-    if random.random() < 0.5:
+    # Re-use the random number from above. Just check if it's in the lower or upper half of the
+    # range from 0 to indel_rate.
+    if rand < indel_rate/2:
       mtype = 'del'
       alt = 1
     else:
