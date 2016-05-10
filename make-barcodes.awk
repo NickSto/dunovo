@@ -49,8 +49,8 @@ $3 && $4 {
     barcode = beta alpha
     order = "ba"
   }
-  name1 = $1
-  name2 = $2
+  name1 = substr($1, 2)
+  name2 = substr($2, 2)
   seq1 = substr($3, TAG_LEN + INVARIANT + 1)
   seq2 = substr($4, TAG_LEN + INVARIANT + 1)
   qual1 = substr($7, TAG_LEN + INVARIANT + 1)
