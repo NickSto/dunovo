@@ -17,7 +17,8 @@ def main(argv):
   parser.set_defaults(**ARG_DEFAULTS)
 
   parser.add_argument('sam', type=argparse.FileType('r'), nargs='?',
-    help='Barcode alignment, in SAM format. Omit to read from stdin.')
+    help='Barcode alignment, in SAM format. Omit to read from stdin. The read names must be '
+         'integers.')
   parser.add_argument('-d', '--dist', type=int,
     help='NM edit distance threshold. Default: %(default)s')
   parser.add_argument('-q', '--qual', type=int,
@@ -35,6 +36,16 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.log_level, format='%(message)s')
   tone_down_logger()
 
+  groups = read_alignment(args.sam, args.pos, args.qual, args.dist)
+
+  for i, group in enumerate(groups):
+    if group is None:
+      print('{}:\tNone'.format(i))
+    else:
+      print('{}:\t{}'.format(i, ', '.join(map(str, group))))
+
+
+def read_alignment(sam, pos_thres, qual_thres, dist_thres):
   # Group reads (barcodes) into sets of reads linked by alignments to each other.
   # Each group of reads is a dict mapping read names to read sequences. "groups" is a list of these
   # dicts.
@@ -42,14 +53,21 @@ def main(argv):
   # "member_to_group" is a dict mapping read names to their group's index in "groups".
   member_to_group = {}
   line_num = 0
-  for line in args.sam:
+  for line in sam:
     line_num += 1
     if line.startswith('@'):
       continue
     fields = line.split('\t')
-    read_name = fields[0]
-    ref_name = fields[2]
-    read_seq = fields[9]
+    try:
+      read_name = int(fields[0])
+      ref_name = int(fields[2])
+    except ValueError:
+      if fields[2] == '*':
+        continue
+      else:
+        logging.error('Non-integer read name(s) on line {}: "{}", "{}".'
+                      .format(line_num, read_name, ref_name))
+        raise
     # Apply alignment quality filters.
     try:
       flags = int(fields[1])
@@ -60,9 +78,9 @@ def main(argv):
     if flags & 4:
       # Read unmapped.
       continue
-    if abs(pos - 1) > args.pos:
+    if abs(pos - 1) > pos_thres:
       continue
-    if mapq < args.qual:
+    if mapq < qual_thres:
       continue
     nm = None
     for tag in fields[11:]:
@@ -74,7 +92,7 @@ def main(argv):
           raise
         break
     assert nm is not None, line_num
-    if nm > args.dist:
+    if nm > dist_thres:
       continue
     logging.debug('Ref {}, read {}:'.format(ref_name, read_name))
     # It's a good alignment. Add it to a group.
@@ -98,7 +116,7 @@ def main(argv):
       group_i = member_to_group[ref_name]
     if group_i is None:
       # No group exists yet. Create one and add it.
-      new_group = {ref_name:None, read_name:read_seq}
+      new_group = set((ref_name, read_name))
       groups.append(new_group)
       group_i = len(groups) - 1
       member_to_group[ref_name] = group_i
@@ -108,24 +126,11 @@ def main(argv):
       # Add these reads to the group.
       logging.debug('\tAdding {} and {} to group {}.'.format(ref_name, read_name, group_i))
       group = groups[group_i]
-      if not group.get(ref_name):
-        logging.debug('\t\t{} not in {}; adding it.'.format(ref_name, group_i))
-        group[ref_name] = None
-        member_to_group[ref_name] = group_i
-      else:
-        logging.debug('\t\t{} already in {}.'.format(ref_name, group_i))
-      if not group.get(read_name):
-        logging.debug('\t\t{} not in {}; adding it.'.format(read_name, group_i))
-        group[read_name] = read_seq
-        member_to_group[read_name] = group_i
-      else:
-        logging.debug('\t\t{} already in {}.'.format(read_name, group_i))
-
-  for i, group in enumerate(groups):
-    print('{}:'.format(i))
-    if group:
-      for name, seq in group.items():
-        print('\t{}:\t{}'.format(name, seq))
+      group.add(ref_name)
+      group.add(read_name)
+      member_to_group[ref_name] = group_i
+      member_to_group[read_name] = group_i
+  return groups
 
 
 def join_groups(groups, member_to_group, ref_name, read_name):
@@ -136,11 +141,7 @@ def join_groups(groups, member_to_group, ref_name, read_name):
   group_ref = groups[group_i_ref]
   group_read = groups[group_i_read]
   # Get a union of all elements in both groups.
-  group_union = group_ref
-  for name, seq in group_read.items():
-    # Only update the read if its name isn't present or its sequence is None.
-    if not group_union.get(name):
-      group_union[name] = seq
+  group_union = group_ref.union(group_read)
   # Put the new, union group back in place of the ref group, and make that the canonical group.
   groups[group_i_ref] = group_union
   groups[group_i_read] = None
