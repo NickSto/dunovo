@@ -19,7 +19,7 @@ def main(argv):
 
   parser.add_argument('families', type=argparse.FileType('r'),
     help='The sorted output of make-barcodes.awk. The important part is that it\'s a tab-delimited '
-         'file with at least one column, which is the barcode sequence, and it must be sorted in '
+         'file with at least 2 columns: the barcode sequence and order, and it must be sorted in '
          'the same order as the "reads" in the SAM file.')
   parser.add_argument('sam', type=argparse.FileType('r'), nargs='?',
     help='Barcode alignment, in SAM format. Omit to read from stdin. The read names must be '
@@ -46,16 +46,15 @@ def main(argv):
   sys.stderr.write('Starting to build groups from SAM alignment..\n')
   groups = read_alignment(args.sam, args.pos, args.qual, args.dist)
 
-  #TODO: Gather orders (ab, ba) too. Erroneous barcodes can also end up with the wrong order.
   sys.stderr.write('Starting to read barcode sequences from families file..\n')
-  votes, barcodes = count_barcodes(args.families)
+  votes, barcodes, orders = count_barcodes(args.families)
 
   #TODO: Instead of going through all the data again, instead at this point we could stream through
   #      the lines in the families file, using the "member_to_group map" to look up each barcode in
   #      "groups" and determine the correction. At that point we could compute all the corrections
   #      for the group for later (essentially compute the "corrections" table on the fly).
   sys.stderr.write('Starting to build corrections table from collected data..\n')
-  corrections = make_correction_table(groups, votes, barcodes)
+  corrections = make_correction_table(groups, votes)
 
   sys.stderr.write('Starting to write corrected output..\n')
   line_num = 0
@@ -70,11 +69,14 @@ def main(argv):
         barcode_num += 1
         barcode_last = raw_barcode
       try:
-        corrected_barcode = corrections[raw_barcode]
+        corrected_barcode_num = corrections[barcode_num]
       except KeyError:
         logging.debug('Barcode number {} not in corrections table. Families file line {}, barcode: '
-                      '{}'.format(barcode_num, line_num, raw_barcode))
-        corrected_barcode = raw_barcode
+                      '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
+        corrected_barcode_num = barcode_num
+      corrected_barcode = barcodes[corrected_barcode_num]
+      corrected_order = orders[corrected_barcode_num]
+      fields[1] = corrected_order
       if args.add_column:
         fields[1:1] = [corrected_barcode]
       else:
@@ -199,50 +201,51 @@ def join_groups(groups, member_to_group, ref_name, read_name):
 
 def count_barcodes(families):
   """Tally how many times each barcode appears in the raw data.
-  Returns two lists: "votes" and "barcodes". In both, each element corresponds to a different
+  Returns 3 lists: "votes", "barcodes", and "orders". In both, each element corresponds to a different
   barcode, in the order it appears in families. But the first element is None, to correspond with
   the 1-based read names in the alignment. So, you should be able to look up info on each barcode
   by taking its read name in the alignment and using it as an index into these lists.
   Elements in "votes" are integers representing how many times each barcode appears.
   Elements in "barcodes" are the barcode strings themselves."""
   votes = []
+  orders = []
   barcodes = []
-  vote = -999999
+  vote = None
+  order = None
   last_barcode = None
   for line in families:
     fields = line.rstrip('\r\n').split('\t')
     barcode = fields[0]
     if barcode != last_barcode:
       votes.append(vote)
+      orders.append(order)
       barcodes.append(last_barcode)
       vote = 0
       last_barcode = barcode
     vote += 1
+    order = fields[1]
   votes.append(vote)
+  orders.append(order)
   barcodes.append(last_barcode)
-  return votes, barcodes
+  return votes, barcodes, orders
 
 
-def make_correction_table(groups, votes, barcodes):
-  """Take all the gathered data and create a mapping of raw barcode sequences to corrected barcodes.
-  """
+def make_correction_table(groups, votes):
+  """Take all the gathered data and create a mapping of raw barcode numbers to corrected barcode
+  numbers."""
   corrections = {}
   for i, group in enumerate(groups):
     # if i == 14835:
-    #   sys.stderr.write('Found group 14835: {}.\n'.format(group))
     #   logging.getLogger().setLevel(logging.DEBUG)
     if group is None:
       logging.debug('{}:\tNone'.format(i))
       continue
     logging.debug('{}:\t{}'.format(i, ', '.join(map(str, group))))
     best_read = choose_read(group, votes)
-    corrected_barcode = barcodes[best_read]
-    logging.debug('\tChose read number {} ({})'.format(best_read, corrected_barcode))
+    logging.debug('\tChose read number {}'.format(best_read))
     for read_name in group:
-      raw_barcode = barcodes[read_name]
-      logging.debug('\tMapping {} -> {} ({} -> {})'
-                    .format(read_name, best_read, raw_barcode, corrected_barcode))
-      corrections[raw_barcode] = corrected_barcode
+      logging.debug('\tMapping {} -> {}'.format(read_name, best_read))
+      corrections[read_name] = best_read
     # logging.getLogger().setLevel(logging.ERROR)
   return corrections
 
