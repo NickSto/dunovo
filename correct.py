@@ -9,7 +9,9 @@ ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'log':sys.stderr,
                 'log_level':logging.ERROR}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Correct barcodes using an alignment of all barcodes to themselves. Reads the
-alignment in SAM format and """
+alignment in SAM format and corrects the barcodes in an input "families" file (the output of
+make-barcodes.awk). It will print the "families" file to stdout with barcodes (and orders)
+corrected."""
 
 
 def main(argv):
@@ -23,7 +25,7 @@ def main(argv):
          'the same order as the "reads" in the SAM file.')
   parser.add_argument('sam', type=argparse.FileType('r'), nargs='?',
     help='Barcode alignment, in SAM format. Omit to read from stdin. The read names must be '
-         'integers.')
+         'integers, representing the (1-based) order they appear in the families file.')
   parser.add_argument('-c', '--add-column', action='store_true',
     help='Include corrected barcodes as an additional column in ')
   parser.add_argument('-d', '--dist', type=int,
@@ -33,6 +35,9 @@ def main(argv):
   parser.add_argument('-p', '--pos', type=int,
     help='POS tolerance. Alignments will be ignored if abs(POS - 1) is greater than this value. '
          'Set to greater than the barcode length for no threshold. Default: %(default)s')
+  parser.add_argument('-L', '--tag-len', type=int,
+    help='Length of each half of the barcode. If not given, it will be determined from the first '
+         'barcode in the families file.')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
   parser.add_argument('-D', '--debug', dest='log_level', action='store_const', const=logging.DEBUG,
@@ -43,47 +48,21 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.log_level, format='%(message)s')
   tone_down_logger()
 
-  sys.stderr.write('Starting to build groups from SAM alignment..\n')
+  logging.info('Building groups from SAM alignment..')
   groups = read_alignment(args.sam, args.pos, args.qual, args.dist)
 
-  sys.stderr.write('Starting to read barcode sequences from families file..\n')
-  votes, barcodes, orders = count_barcodes(args.families)
+  logging.info('Reading barcode sequences from families file..')
+  votes, barcodes = count_barcodes(args.families)
 
   #TODO: Instead of going through all the data again, instead at this point we could stream through
   #      the lines in the families file, using the "member_to_group map" to look up each barcode in
   #      "groups" and determine the correction. At that point we could compute all the corrections
   #      for the group for later (essentially compute the "corrections" table on the fly).
-  sys.stderr.write('Starting to build corrections table from collected data..\n')
-  corrections = make_correction_table(groups, votes)
+  logging.info('Building corrections table from collected data..')
+  corrections = make_correction_table(groups, votes, barcodes)
 
-  sys.stderr.write('Starting to write corrected output..\n')
-  line_num = 0
-  barcode_num = 0
-  barcode_last = None
-  with open(args.families.name) as families:
-    for line in families:
-      line_num += 1
-      fields = line.rstrip('\r\n').split('\t')
-      raw_barcode = fields[0]
-      raw_order = fields[1]
-      if raw_barcode != barcode_last:
-        barcode_num += 1
-        barcode_last = raw_barcode
-      try:
-        corrected_barcode_num = corrections[barcode_num]
-      except KeyError:
-        logging.debug('Barcode number {} not in corrections table. Families file line {}, barcode: '
-                      '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
-        corrected_barcode_num = barcode_num
-      corrected_barcode = barcodes[corrected_barcode_num]
-      # corrected_order = orders[corrected_barcode_num]
-      ordered_barcode, corrected_order = order_barcode(corrected_barcode, raw_order, half=12)
-      fields[1] = corrected_order
-      if args.add_column:
-        fields[1:1] = [ordered_barcode]
-      else:
-        fields[0] = ordered_barcode
-      print(*fields, sep='\t')
+  logging.info('Printing corrected output..')
+  print_corrected_output(args.families.name, corrections, barcodes, args.add_column)
 
 
 def read_alignment(sam, pos_thres, qual_thres, dist_thres):
@@ -203,38 +182,33 @@ def join_groups(groups, member_to_group, ref_name, read_name):
 
 def count_barcodes(families):
   """Tally how many times each barcode appears in the raw data.
-  Returns 3 lists: "votes", "barcodes", and "orders". In both, each element corresponds to a different
+  Returns two lists: "votes" and "barcodes". In both, each element corresponds to a different
   barcode, in the order it appears in families. But the first element is None, to correspond with
   the 1-based read names in the alignment. So, you should be able to look up info on each barcode
   by taking its read name in the alignment and using it as an index into these lists.
   Elements in "votes" are integers representing how many times each barcode appears.
   Elements in "barcodes" are the barcode strings themselves."""
   votes = []
-  orders = []
   barcodes = []
   vote = None
-  order = None
   last_barcode = None
   for line in families:
     fields = line.rstrip('\r\n').split('\t')
     barcode = fields[0]
     if barcode != last_barcode:
       votes.append(vote)
-      orders.append(order)
       barcodes.append(last_barcode)
       vote = 0
       last_barcode = barcode
     vote += 1
-    order = fields[1]
   votes.append(vote)
-  orders.append(order)
   barcodes.append(last_barcode)
-  return votes, barcodes, orders
+  return votes, barcodes
 
 
-def make_correction_table(groups, votes):
-  """Take all the gathered data and create a mapping of raw barcode numbers to corrected barcode
-  numbers."""
+def make_correction_table(groups, votes, barcodes):
+  """Take all the gathered data and create a mapping of raw barcode sequences to corrected barcodes.
+  """
   corrections = {}
   for i, group in enumerate(groups):
     # if i == 14835:
@@ -244,10 +218,13 @@ def make_correction_table(groups, votes):
       continue
     logging.debug('{}:\t{}'.format(i, ', '.join(map(str, group))))
     best_read = choose_read(group, votes)
-    logging.debug('\tChose read number {}'.format(best_read))
+    corrected_barcode = barcodes[best_read]
+    logging.debug('\tChose read number {} ({})'.format(best_read, corrected_barcode))
     for read_name in group:
-      logging.debug('\tMapping {} -> {}'.format(read_name, best_read))
-      corrections[read_name] = best_read
+      raw_barcode = barcodes[read_name]
+      logging.debug('\tMapping {} -> {} ({} -> {})'
+                    .format(read_name, best_read, raw_barcode, corrected_barcode))
+      corrections[raw_barcode] = corrected_barcode
     # logging.getLogger().setLevel(logging.ERROR)
   return corrections
 
@@ -262,13 +239,45 @@ def choose_read(group, votes):
   return best_read
 
 
-def order_barcode(barcode, raw_order, half=12):
+def print_corrected_output(families_path, corrections, barcodes, add_column=False, tag_len=None):
+  # Determine barcode tag length if not given.
+  if tag_len is None:
+    tag_len = len(barcodes[1])//2
+  line_num = 0
+  barcode_num = 0
+  barcode_last = None
+  with open(families_path) as families:
+    for line in families:
+      line_num += 1
+      fields = line.rstrip('\r\n').split('\t')
+      raw_barcode = fields[0]
+      raw_order = fields[1]
+      if raw_barcode != barcode_last:
+        barcode_num += 1
+        barcode_last = raw_barcode
+      try:
+        corrected_barcode_num = corrections[barcode_num]
+      except KeyError:
+        logging.debug('Barcode number {} not in corrections table. Families file line {}, barcode: '
+                      '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
+        corrected_barcode_num = barcode_num
+      corrected_barcode = barcodes[corrected_barcode_num]
+      ordered_barcode, corrected_order = order_barcode(corrected_barcode, raw_order, tag_len)
+      fields[1] = corrected_order
+      if add_column:
+        fields[1:1] = [ordered_barcode]
+      else:
+        fields[0] = ordered_barcode
+      print(*fields, sep='\t')
+
+
+def order_barcode(barcode, raw_order, tag_len=12):
   if raw_order == 'ab':
-    alpha = barcode[:half]
-    beta = barcode[half:]
+    alpha = barcode[:tag_len]
+    beta = barcode[tag_len:]
   if raw_order == 'ba':
-    beta = barcode[:half]
-    alpha = barcode[half:]
+    beta = barcode[:tag_len]
+    alpha = barcode[tag_len:]
   if alpha < beta:
     return alpha + beta, 'ab'
   else:
