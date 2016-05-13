@@ -65,6 +65,7 @@ def main(argv):
       line_num += 1
       fields = line.rstrip('\r\n').split('\t')
       raw_barcode = fields[0]
+      raw_order = fields[1]
       if raw_barcode != barcode_last:
         barcode_num += 1
         barcode_last = raw_barcode
@@ -75,12 +76,13 @@ def main(argv):
                       '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
         corrected_barcode_num = barcode_num
       corrected_barcode = barcodes[corrected_barcode_num]
-      corrected_order = orders[corrected_barcode_num]
+      # corrected_order = orders[corrected_barcode_num]
+      ordered_barcode, corrected_order = order_barcode(corrected_barcode, raw_order, half=12)
       fields[1] = corrected_order
       if args.add_column:
-        fields[1:1] = [corrected_barcode]
+        fields[1:1] = [ordered_barcode]
       else:
-        fields[0] = corrected_barcode
+        fields[0] = ordered_barcode
       print(*fields, sep='\t')
 
 
@@ -258,6 +260,19 @@ def choose_read(group, votes):
       max_votes = votes[read_name]
       best_read = read_name
   return best_read
+
+
+def order_barcode(barcode, raw_order, half=12):
+  if raw_order == 'ab':
+    alpha = barcode[:half]
+    beta = barcode[half:]
+  if raw_order == 'ba':
+    beta = barcode[:half]
+    alpha = barcode[half:]
+  if alpha < beta:
+    return alpha + beta, 'ab'
+  else:
+    return beta + alpha, 'ba'
 
 
 def tone_down_logger():
