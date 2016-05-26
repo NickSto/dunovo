@@ -24,6 +24,7 @@
  */
 // Note: That's an MIT license.
 // All double-commented comments below are from Nicolaus Lance Hepler.
+// Original repository: https://code.google.com/archive/p/swalign/
 
 #include "swalign.h"
 
