@@ -35,7 +35,7 @@ All known requirements are below. Version numbers in parentheses are what the de
 
 ### Installation
 
-    $ git clone git@github.com:makrutenko/duplex.git
+    $ git clone git@github.com:galaxyproject/dunovo.git
     $ cd duplex
     $ make
 
