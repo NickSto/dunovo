@@ -4,18 +4,16 @@ This is a pipeline for processing of duplex sequencing data without the use of a
 
 The pipeline was designed for use with the duplex method described in [Kennedy *et al.* 2014](https://dx.doi.org/10.1038/nprot.2014.170), but the assumptions are relatively minimal, so you should be able to apply it to variants of the protocol.
 
-## Using _Du Novo_
+The majority of _Du Novo_ is released under a BSD license, except for some portions governed by the MIT license. See `LICENSE.txt` for details.
 
-_Du Novo_ can be used in one of two ways:
-
- * via Galaxy
- * on the command line
 
 ## Running _Du Novo_ from Galaxy
 
 We created a comprehensive [tutorial](https://github.com/galaxyproject/dunovo/wiki) explaining all aspects of interactive use of _De Novo_ from within [Galaxy](http://usegalaxy.org).
 
+
 ## Running _Du Novo_ on the command line
+
 
 ### Requirements
 
@@ -32,6 +30,7 @@ All known requirements are below. Version numbers in parentheses are what the de
  -  [awk](https://www.gnu.org/software/gawk/) (4.0.1)
  -  [paste](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
  -  [sort](https://www.gnu.org/software/coreutils/coreutils.html) (8.21)
+
 
 ### Installation
 
