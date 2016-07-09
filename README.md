@@ -35,12 +35,12 @@ All known requirements are below. Version numbers in parentheses are what the de
 ### Installation
 
     $ git clone git@github.com:galaxyproject/dunovo.git
-    $ cd duplex
+    $ cd dunovo
     $ make
 
-Instead of the `git` command, you can just click "Download ZIP", unzip it, and `cd` to the "duplex-master" directory.
+Instead of the `git` command, you can just click the "Clone or download" button on this page, then "Download ZIP", unzip it, and `cd` to the "dunovo-master" directory.
 
-You'll need to compile the C modules before using it. Do this in a terminal by `cd`ing to the source directory (where the file `Makefile` is) and run the command `make`.
+The `make` command is needed to compile the C modules, which are required. You need to be in the root source directory (where the file `Makefile` is) before running the command.
 
 
 ### Usage
