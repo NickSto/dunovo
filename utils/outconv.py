@@ -8,7 +8,7 @@ import argparse
 
 ARG_DEFAULTS = {'input':sys.stdin}
 USAGE = "%(prog)s [options]"
-DESCRIPTION = """"""
+DESCRIPTION = """Split interleaved outputs of dunovo.py into pairs of paired-end files."""
 
 
 def main(argv):
