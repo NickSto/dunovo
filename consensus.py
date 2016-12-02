@@ -23,7 +23,9 @@ def get_consensus(align, quals=[], cons_thres=-1.0, qual_thres=' ', gapped=False
     if seq_len is None:
       seq_len = len(seq)
     else:
-      assert seq_len == len(seq), 'All sequences in the alignment must be the same length.'
+      assert seq_len == len(seq), ('All sequences in the alignment must be the same length: '
+                                   '{}bp != {}bp.\nAlignment:\n{}'.format(seq_len, len(seq),
+                                                                          '\n'.join(align)))
   align_c = (ctypes.c_char_p * n_seqs)()
   for i, seq in enumerate(align):
     align_c[i] = ctypes.c_char_p(seq)
