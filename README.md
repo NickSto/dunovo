@@ -104,7 +104,7 @@ The reads will be printed in one, interleaved file, with the naming format:
 e.g.  
 `>TTGCGCCAGGGCGAGGAAAATACT.1 8/13`
 
-But this isn't easy to work with. A better output is in development, but for now you can use the awk script `outconv.awk` to convert the interleaved output file into two standard forward/reverse paired files with a standard naming convention:
+But this isn't easy to work with. A better output is in development, but for now you can use the script `outconv.py` to convert the interleaved output file into two standard forward/reverse paired files with a standard naming convention:
 
-    $ awk -f utils/outconv.awk -v target=1 duplex.fa > duplex_1.fa
-    $ awk -f utils/outconv.awk -v target=2 duplex.fa > duplex_2.fa
+    $ python utils/outconv.py duplex.fa -1 duplex_1.fa -2 duplex_2.fa
+    $ python utils/outconv.py sscs.fa -1 sscs_1.fa -2 sscs_2.fa

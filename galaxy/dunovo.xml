@@ -9,11 +9,13 @@
   <command detect_errors="exit_code"><![CDATA[
     python \$DUPLEX_DIR/dunovo.py -r $min_reads -q $qual_thres -F $qual_format $input
     #if $keep_sscs:
-      --sscs-file $sscs
+      --sscs-file sscs.fa
     #end if
     > duplex.fa
-    && awk -f \$DUPLEX_DIR/utils/outconv.awk -v target=1 duplex.fa > $output1
-    && awk -f \$DUPLEX_DIR/utils/outconv.awk -v target=2 duplex.fa > $output2
+    && python \$DUPLEX_DIR/utils/outconv.py duplex.fa -1 $dcs1 -2 $dcs2
+    #if $keep_sscs:
+      && python \$DUPLEX_DIR/utils/outconv.py sscs.fa -1 $sscs1 -2 $sscs2
+    #end if
   ]]>
   </command>
   <inputs>
@@ -24,20 +26,23 @@
       <option value="sanger" selected="true">Sanger (PHRED 0 = &quot;!&quot;)</option>
       <option value="solexa">Solexa (PHRED 0 = &quot;@&quot;)</option>
     </param>
-    <param name="keep_sscs" type="boolean" truevalue="true" falsevalue="" label="Output single-strand consensus sequences" />
+    <param name="keep_sscs" type="boolean" truevalue="true" falsevalue="" label="Output single-strand consensus sequences as well" />
   </inputs>
   <outputs>
-    <data name="output1" format="fasta" label="$tool.name on $on_string (mate 1)"/>
-    <data name="output2" format="fasta" label="$tool.name on $on_string (mate 2)"/>
-    <data name="sscs" format="fasta" label="$tool.name on $on_string (SSCS)">
+    <data name="dcs1" format="fasta" label="$tool.name on $on_string (mate 1)"/>
+    <data name="dcs2" format="fasta" label="$tool.name on $on_string (mate 2)"/>
+    <data name="sscs1" format="fasta" label="$tool.name on $on_string (SSCS mate 1)">
+      <filter>keep_sscs</filter>
+    </data>
+    <data name="sscs2" format="fasta" label="$tool.name on $on_string (SSCS mate 2)">
       <filter>keep_sscs</filter>
     </data>
   </outputs>
   <tests>
     <test>
       <param name="input" value="families.msa.tsv"/>
-      <output name="output1" file="families.cons_1.fa"/>
-      <output name="output2" file="families.cons_2.fa"/>
+      <output name="dcs1" file="families.cons_1.fa"/>
+      <output name="dcs2" file="families.cons_2.fa"/>
     </test>
   </tests>
   <help>
