@@ -5,6 +5,7 @@ if [ x$BASH = x ] || [ ! $BASH_VERSINFO ] || [ $BASH_VERSINFO -lt 4 ]; then
 fi
 set -ue
 
+Start=${Start:=}
 BarcodeLen=${BarcodeLen:=12}
 SpacerLen=${SpacerLen:=5}
 StartClip=${StartClip:=5}
@@ -91,90 +92,132 @@ readlen: $readlen
   refdict=$(echo "$ref" | sed -E 's/\.fa(sta)?$//').dict
   rlenreal=$((readlen-BarcodeLen-SpacerLen))
   end_clip_start=$((rlenreal-EndClip+1))
+  start=$(echo $Start | cut -d . -f 1)
 
   if [[ $duplex ]]; then
-    echo '===== 56 =====' && echo '===== 56 =====' >&2
-    # Concatenate the 12-nt tag sequences from the paired reads and evaluate for tag quality
-    $PythonCmd $script_dir/tag_to_header.py --infile1 $fastq1 --infile2 $fastq2 \
-      --outfile1 $outdir/read_1.fq.smi --outfile2 $outdir/read_2.fq.smi \
-      --barcode_length $BarcodeLen --spacer_length $SpacerLen
-    echo '===== 57 =====' && echo '===== 57 =====' >&2
-    # Align each read to the reference genome
-    $BwaCmd aln $ref $outdir/read_1.fq.smi > $outdir/read_1.aln
-    echo '===== 57.2 =====' && echo '===== 57.2 =====' >&2
-    $BwaCmd aln $ref $outdir/read_2.fq.smi > $outdir/read_2.aln
-    echo '===== 58 =====' && echo '===== 58 =====' >&2
-    # Make a single paired-end .sam file
-    $BwaCmd sampe -s $ref $outdir/read_1.aln $outdir/read_2.aln \
-      $outdir/read_1.fq.smi $outdir/read_2.fq.smi > $outdir/PE_reads.sam
-    echo '===== 59 =====' && echo '===== 59 =====' >&2
-    # Convert to .bam format and sort by position
-    $SamtoolsCmd view -Sbu $outdir/PE_reads.sam | $SamtoolsCmd sort - $outdir/PE_reads.sort
-    echo '===== 60 =====' && echo '===== 60 =====' >&2
-    # Run the Python program 'ConsensusMaker.py' to collapse PCR duplicates into SSCS
-    $PythonCmd $script_dir/ConsensusMaker.py --tagfile $outdir/PE_reads.tagcounts \
-      --infile $outdir/PE_reads.sort.bam --outfile $outdir/SSCS.bam --min 3 --max 1000 \
-      --cutoff 0.7 --Ncutoff 0.3 --readlength $rlenreal --read_type dpm --filt osn
-    echo '===== 61 =====' && echo '===== 61 =====' >&2
-    # Sort the SSCS reads
-    $SamtoolsCmd view -bu $outdir/SSCS.bam | $SamtoolsCmd sort - $outdir/SSCS.sort
-    echo '===== 62 =====' && echo '===== 62 =====' >&2
-    # Construct DCSs from SSCSs using 'DuplexMaker.py'
-    $PythonCmd $script_dir/DuplexMaker.py --infile $outdir/SSCS.sort.bam \
-      --outfile $outdir/DCS_data.bam --Ncutoff 0.3 --readlength $rlenreal
+    if ! [[ $start ]] || [[ $start -le 56 ]]; then
+      echo '===== 56 =====' && echo '===== 56 =====' >&2
+      # Concatenate the 12-nt tag sequences from the paired reads and evaluate for tag quality
+      $PythonCmd $script_dir/tag_to_header.py --infile1 $fastq1 --infile2 $fastq2 \
+        --outfile1 $outdir/read_1.fq.smi --outfile2 $outdir/read_2.fq.smi \
+        --barcode_length $BarcodeLen --spacer_length $SpacerLen
+    fi
+    if ! [[ $start ]] || [[ $start -le 57 ]]; then
+      # Allow specifying 57.2 so only the second half is executed.
+      if ! [[ $Start ]] || [[ $Start != 57.2 ]]; then
+        echo '===== 57 =====' && echo '===== 57 =====' >&2
+        # Align each read to the reference genome
+        $BwaCmd aln $ref $outdir/read_1.fq.smi > $outdir/read_1.aln
+      fi
+      echo '===== 57.2 =====' && echo '===== 57.2 =====' >&2
+      $BwaCmd aln $ref $outdir/read_2.fq.smi > $outdir/read_2.aln
+    fi
+    if ! [[ $start ]] || [[ $start -le 58 ]]; then
+      echo '===== 58 =====' && echo '===== 58 =====' >&2
+      # Make a single paired-end .sam file
+      $BwaCmd sampe -s $ref $outdir/read_1.aln $outdir/read_2.aln \
+        $outdir/read_1.fq.smi $outdir/read_2.fq.smi > $outdir/PE_reads.sam
+    fi
+    if ! [[ $start ]] || [[ $start -le 59 ]]; then
+      echo '===== 59 =====' && echo '===== 59 =====' >&2
+      # Convert to .bam format and sort by position
+      $SamtoolsCmd view -Sbu $outdir/PE_reads.sam | $SamtoolsCmd sort - $outdir/PE_reads.sort
+    fi
+    if ! [[ $start ]] || [[ $start -le 60 ]]; then
+      echo '===== 60 =====' && echo '===== 60 =====' >&2
+      # Run the Python program 'ConsensusMaker.py' to collapse PCR duplicates into SSCS
+      $PythonCmd $script_dir/ConsensusMaker.py --tagfile $outdir/PE_reads.tagcounts \
+        --infile $outdir/PE_reads.sort.bam --outfile $outdir/SSCS.bam --min 3 --max 1000 \
+        --cutoff 0.7 --Ncutoff 0.3 --readlength $rlenreal --read_type dpm --filt osn
+    fi
+    if ! [[ $start ]] || [[ $start -le 61 ]]; then
+      echo '===== 61 =====' && echo '===== 61 =====' >&2
+      # Sort the SSCS reads
+      $SamtoolsCmd view -bu $outdir/SSCS.bam | $SamtoolsCmd sort - $outdir/SSCS.sort
+    fi
+    if ! [[ $start ]] || [[ $start -le 62 ]]; then
+      echo '===== 62 =====' && echo '===== 62 =====' >&2
+      # Construct DCSs from SSCSs using 'DuplexMaker.py'
+      $PythonCmd $script_dir/DuplexMaker.py --infile $outdir/SSCS.sort.bam \
+        --outfile $outdir/DCS_data.bam --Ncutoff 0.3 --readlength $rlenreal
+    fi
   fi
 
   if [[ $cleanup ]]; then
-    if ! [[ -s $outdir/DCS_data.r1.fq ]] || ! [[ -s $outdir/DCS_data.r2.fq ]]; then
-      fail "ERROR: Duplex sequences missing! ($outdir/DCS_data.r[12].fq)"
+    if ! [[ $start ]] || [[ $start -le 63 ]]; then
+      if ! [[ -s $outdir/DCS_data.r1.fq ]] || ! [[ -s $outdir/DCS_data.r2.fq ]]; then
+        fail "ERROR: Duplex sequences missing! ($outdir/DCS_data.r[12].fq)"
+      fi
+      if ! [[ $Start ]] || [[ $Start != 63.2 ]]; then
+        echo '===== 63 =====' && echo '===== 63 =====' >&2
+        # Align each DCS .fastq to the reference genome
+        $BwaCmd aln $ref $outdir/DCS_data.r1.fq > $outdir/DCS_data.r1.aln
+      fi
+      echo '===== 63.2 =====' && echo '===== 63.2 =====' >&2
+      $BwaCmd aln $ref $outdir/DCS_data.r2.fq > $outdir/DCS_data.r2.aln
     fi
-    echo '===== 63 =====' && echo '===== 63 =====' >&2
-    # Align each DCS .fastq to the reference genome
-    $BwaCmd aln $ref $outdir/DCS_data.r1.fq > $outdir/DCS_data.r1.aln
-    echo '===== 63.2 =====' && echo '===== 63.2 =====' >&2
-    $BwaCmd aln $ref $outdir/DCS_data.r2.fq > $outdir/DCS_data.r2.aln
-    echo '===== 64 =====' && echo '===== 64 =====' >&2
-    # Make a paired-end .sam file for the DCS data
-    $BwaCmd sampe -s $ref $outdir/DCS_data.r1.aln $outdir/DCS_data.r2.aln \
-      $outdir/DCS_data.r1.fq $outdir/DCS_data.r2.fq > $outdir/DCS_PE.aln.sam
-    echo '===== 65 =====' && echo '===== 65 =====' >&2
-    # Convert to .bam format and sort by position
-    $SamtoolsCmd view -Sbu $outdir/DCS_PE.aln.sam | $SamtoolsCmd sort - $outdir/DCS_PE.aln.sort
-    echo '===== 66 =====' && echo '===== 66 =====' >&2
-    # Index the final sorted DCS .bam file
-    $SamtoolsCmd index $outdir/DCS_PE.aln.sort.bam
-    echo '===== 67 =====' && echo '===== 67 =====' >&2
-    # Filter out unmapped reads from the final DCS .bam file
-    $SamtoolsCmd view -F 4 -b $outdir/DCS_PE.aln.sort.bam > $outdir/DCS_PE.filt.bam
-    echo '===== 68 =====' && echo '===== 68 =====' >&2
-    # Add readgroups field to the header of the final DCS .bam file with Picard to allow for
-    # compatibility with the GATK using Picard tools.
-    $JavaCmd -jar -Xmx2g $PicardDir/AddOrReplaceReadGroups.jar INPUT=$outdir/DCS_PE.filt.bam \
-      OUTPUT=$outdir/DCS_PE.filt.readgroups.bam RGLB=UW RGPL=Illumina RGPU=ATATAT RGSM=default
-    echo '===== 69 =====' && echo '===== 69 =====' >&2
-    # Index the final sorted DCS .bam file
-    $SamtoolsCmd index $outdir/DCS_PE.filt.readgroups.bam
-    if ! [[ -s $refdict ]]; then
-      echo '===== 69.2 =====' && echo '===== 69.2 =====' >&2
-      rm -f $refdict
-      $JavaCmd -jar $PicardDir/CreateSequenceDictionary.jar REFERENCE=$ref OUTPUT=$refdict
+    if ! [[ $start ]] || [[ $start -le 64 ]]; then
+      echo '===== 64 =====' && echo '===== 64 =====' >&2
+      # Make a paired-end .sam file for the DCS data
+      $BwaCmd sampe -s $ref $outdir/DCS_data.r1.aln $outdir/DCS_data.r2.aln \
+        $outdir/DCS_data.r1.fq $outdir/DCS_data.r2.fq > $outdir/DCS_PE.aln.sam
     fi
-    echo '===== 70 =====' && echo '===== 70 =====' >&2
-    # Perform local re-alignment of the reads using GATK. First identify the genome targets for
-    # local re-alignment.
-    $JavaCmd -Xmx2g -jar $GatkDir/GenomeAnalysisTK.jar -T RealignerTargetCreator -R $ref \
-      -I $outdir/DCS_PE.filt.readgroups.bam -o $outdir/DCS_PE.filt.readgroups.intervals
-    echo '===== 70.2 =====' && echo '===== 70.2 =====' >&2
-    # This command is followed by the actual local re-alignment.
-    $JavaCmd -Xmx2g -jar $GatkDir/GenomeAnalysisTK.jar -T IndelRealigner -R $ref \
-      -I $outdir/DCS_PE.filt.readgroups.bam -o $outdir/DCS_PE.filt.readgroups.realign.bam \
-      -targetIntervals $outdir/DCS_PE.filt.readgroups.intervals
-    echo '===== 71 =====' && echo '===== 71 =====' >&2
-    # Perform end-trimming of DCS reads. An example command that trims five bases from both the 3'
-    # and 5' ends of each read is provided.
-    $JavaCmd -Xmx2g -jar $GatkDir/GenomeAnalysisTK.jar -T ClipReads \
-      -I $outdir/DCS_PE.filt.readgroups.realign.bam -o $outdir/DCS-final.bam -R $ref \
-      --cyclesToTrim "1-$StartClip,$end_clip_start-$rlenreal" --clipRepresentation SOFTCLIP_BASES
+    if ! [[ $start ]] || [[ $start -le 65 ]]; then
+      echo '===== 65 =====' && echo '===== 65 =====' >&2
+      # Convert to .bam format and sort by position
+      $SamtoolsCmd view -Sbu $outdir/DCS_PE.aln.sam | $SamtoolsCmd sort - $outdir/DCS_PE.aln.sort
+    fi
+    if ! [[ $start ]] || [[ $start -le 66 ]]; then
+      echo '===== 66 =====' && echo '===== 66 =====' >&2
+      # Index the final sorted DCS .bam file
+      $SamtoolsCmd index $outdir/DCS_PE.aln.sort.bam
+    fi
+    if ! [[ $start ]] || [[ $start -le 67 ]]; then
+      echo '===== 67 =====' && echo '===== 67 =====' >&2
+      # Filter out unmapped reads from the final DCS .bam file
+      $SamtoolsCmd view -F 4 -b $outdir/DCS_PE.aln.sort.bam > $outdir/DCS_PE.filt.bam
+    fi
+    if ! [[ $start ]] || [[ $start -le 68 ]]; then
+      echo '===== 68 =====' && echo '===== 68 =====' >&2
+      # Add readgroups field to the header of the final DCS .bam file with Picard to allow for
+      # compatibility with the GATK using Picard tools.
+      $JavaCmd -jar -Xmx2g $PicardDir/AddOrReplaceReadGroups.jar INPUT=$outdir/DCS_PE.filt.bam \
+        OUTPUT=$outdir/DCS_PE.filt.readgroups.bam RGLB=UW RGPL=Illumina RGPU=ATATAT RGSM=default
+    fi
+    if ! [[ $start ]] || [[ $start -le 69 ]]; then
+      if ! [[ $Start ]] || [[ $Start != 69.2 ]]; then
+        echo '===== 69 =====' && echo '===== 69 =====' >&2
+        # Index the final sorted DCS .bam file
+        $SamtoolsCmd index $outdir/DCS_PE.filt.readgroups.bam
+      fi
+      if ! [[ -s $refdict ]]; then
+        echo '===== 69.2 =====' && echo '===== 69.2 =====' >&2
+        # rm -f $refdict
+        $JavaCmd -jar $PicardDir/CreateSequenceDictionary.jar REFERENCE=$ref OUTPUT=$refdict
+      fi
+    fi
+    if ! [[ $start ]] || [[ $start -le 70 ]]; then
+      if ! [[ $Start ]] || [[ $Start != 70.2 ]]; then
+        echo '===== 70 =====' && echo '===== 70 =====' >&2
+        # Perform local re-alignment of the reads using GATK. First identify the genome targets for
+        # local re-alignment.
+        $JavaCmd -Xmx2g -jar $GatkDir/GenomeAnalysisTK.jar -T RealignerTargetCreator -R $ref \
+          -I $outdir/DCS_PE.filt.readgroups.bam -o $outdir/DCS_PE.filt.readgroups.intervals
+      fi
+      echo '===== 70.2 =====' && echo '===== 70.2 =====' >&2
+      # This command is followed by the actual local re-alignment.
+      $JavaCmd -Xmx2g -jar $GatkDir/GenomeAnalysisTK.jar -T IndelRealigner -R $ref \
+        -I $outdir/DCS_PE.filt.readgroups.bam -o $outdir/DCS_PE.filt.readgroups.realign.bam \
+        -targetIntervals $outdir/DCS_PE.filt.readgroups.intervals
+    fi
+    if ! [[ $start ]] || [[ $start -le 71 ]]; then
+      echo '===== 71 =====' && echo '===== 71 =====' >&2
+      # Perform end-trimming of DCS reads. An example command that trims five bases from both the 3'
+      # and 5' ends of each read is provided.
+      $JavaCmd -Xmx2g -jar $GatkDir/GenomeAnalysisTK.jar -T ClipReads \
+        -I $outdir/DCS_PE.filt.readgroups.realign.bam -o $outdir/DCS-final.bam -R $ref \
+        --cyclesToTrim "1-$StartClip,$end_clip_start-$rlenreal" --clipRepresentation SOFTCLIP_BASES
+    fi
   fi
   echo '===== DONE =====' && echo '===== DONE =====' >&2
 }
