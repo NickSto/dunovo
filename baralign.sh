@@ -5,14 +5,11 @@ if [ x$BASH = x ] || [ ! $BASH_VERSINFO ] || [ $BASH_VERSINFO -lt 4 ]; then
 fi
 set -ue
 
-Usage="Usage: \$ $(basename $0) families_file ref_dir out_file [bar_len]
+Usage="Usage: \$ $(basename $0) families_file ref_dir out_file
 families_file: The families.tsv produced by make-barcodes.awk and sorted.
 ref_dir:  The directory to put the reference file (\"barcodes.fa\") and its index
           files in.
-out_file: The path to put the output alignment BAM file at.
-bar_len:  The length of the barcodes (an integer). Will be used to generate the
-          dummy quality scores line. If not given, will be detected from the
-          barcodes in the families_file."
+out_file: The path to put the output alignment BAM file at."
 
 function main {
 
@@ -25,10 +22,6 @@ function main {
   families=$1
   refdir=$2
   outfile=$3
-  barlen=
-  if [[ $# -ge 4 ]]; then
-    barlen=$4
-  fi
 
   if ! [[ -f $families ]]; then
     fail "Error: families_file \"$families\" not found."
@@ -44,13 +37,6 @@ function main {
   if [[ -e $outfile ]] || [[ -e $outbase.sam ]] || [[ -e $outbase.tmp.sam ]]; then
     fail "Error: out_file \"$outfile\" conflicts with existing filename(s)."
   fi
-  if [[ $barlen ]]; then
-    if ! echo "$barlen" | grep -qE '^[0-9]+$'; then
-      fail "Error: \"$barlen\" not an integer."
-    fi
-  else
-    barlen=$(($(head -n 1 $families | cut -f 1 | wc -c)-1))
-  fi
 
   for cmd in bowtie2 bowtie2-build samtools awk; do
     if ! which $cmd >/dev/null 2>/dev/null; then
@@ -58,16 +44,11 @@ function main {
     fi
   done
 
-  working_dir=$(dirname $families)
-  qual_str=$(python -c 'print "I" * '$barlen)
   echo "
 families: $families
 refdir:   $refdir
 outfile:  $outfile
-barlen:   $barlen
-outbase:  $outbase
-working_dir: $working_dir
-qual_str: $qual_str"
+outbase:  $outbase"
 
   # Prepare barcode files for alignment.
 
@@ -80,20 +61,11 @@ qual_str: $qual_str"
     {
       last = $1
     }' $families > $refdir/barcodes.fa
-  awk '
-    NR % 2 == 1 {
-      print "@" substr($0, 2)
-    }
-    NR % 2 == 0 {
-      print $0
-      print "+"
-      print "'$qual_str'"
-    }' $refdir/barcodes.fa > $working_dir/barcodes.fq
 
   # Perform alignment.
 
   bowtie2-build --packed $refdir/barcodes.fa $refdir/barcodes >/dev/null
-  bowtie2 -a -x $refdir/barcodes -U $working_dir/barcodes.fq -S $outbase.sam
+  bowtie2 -a -x $refdir/barcodes -f -U $refdir/barcodes.fa -S $outbase.sam
   samtools view -Sb $outbase.sam > $outbase.tmp.bam
   samtools sort $outbase.tmp.bam $outbase
   if [[ -s $outfile ]]; then
