@@ -20,6 +20,8 @@ def main(argv):
 
   parser.add_argument('initial_barcodes', metavar='barcodes to try', type=int, nargs='?',
     help='')
+  parser.add_argument('-s', '--summary', action='store_true',
+    help='Only print the summary of how many families were rescued.')
   parser.add_argument('-m', '--mapq', type=int)
   parser.add_argument('-r', '--random', action='store_true')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
@@ -44,12 +46,21 @@ def main(argv):
                           shuf_cmd,
                           ('head', '-n', str(args.initial_barcodes)))
   families_by_barcode = {}
-  for line in process.stdout:
+  for line_raw in process.stdout:
+    line = line_raw.rstrip('\r\n')
     fields = line.split()
     family = {}
-    family['count1'] = int(fields[0])
-    family['count2'] = int(fields[3])
-    barcode = fields[1]
+    count1, barcode, order1, count2, barcode2, order2 = fields
+    assert barcode == barcode2, (barcode, barcode2)
+    if order1 == 'ab':
+      assert order2 == 'ba', barcode
+    elif order1 == 'ba':
+      assert order2 == 'ab', barcode
+      count1, count2 = count2, count1
+    else:
+      fail(order1, order2, barcode)
+    family['count1'] = int(count1)
+    family['count2'] = int(count2)
     family['barcode'] = barcode
     families_by_barcode[barcode] = family
 
@@ -92,9 +103,10 @@ def main(argv):
         neighbors_by_read_name[read_name2] = neighbor
   logging.info('hits: {}'.format(hits))
 
-  logging.info('Reading barcodes.fq to find sequences of similar barcodes..')
+  logging.info('Reading barcodes.fq to find sequences of neighbors..')
   hits = 0
   line_num = 0
+  neighbors_by_barcode = {}
   with open('barcodes.fq', 'rU') as barcodes_fq:
     for line in barcodes_fq:
       line_num += 1
@@ -104,16 +116,57 @@ def main(argv):
       if line_num % 4 == 2 and neighbor:
         seq = line.rstrip('\r\n')
         neighbor['barcode'] = seq
+        neighbors_by_barcode[seq] = neighbor
+  logging.info('hits: {}'.format(hits))
+
+  logging.info('Reading families.uniq.txt to get counts of neighbors..')
+  hits = 0
+  with open('families.uniq.txt', 'rU') as families_uniq:
+    for line in families_uniq:
+      fields = line.split()
+      barcode = fields[1]
+      neighbor = neighbors_by_barcode.get(barcode)
+      if neighbor:
+        hits += 1
+        count = int(fields[0])
+        order = fields[2].rstrip('\r\n')
+        alpha = barcode[:len(seq)//2]
+        beta  = barcode[len(seq)//2:]
+        swap = alpha >= beta
+        if (not swap and order == 'ab') or (swap and order == 'ba'):
+          neighbor['count1'] = count
+          neighbor['count2'] = 0
+        elif (not swap and order == 'ba') or (swap and order == 'ab'):
+          neighbor['count1'] = 0
+          neighbor['count2'] = count
+        else:
+          fail(order, barcode, swap)
   logging.info('hits: {}'.format(hits))
 
   logging.info('Printing results..')
+  total = 0
+  passing = 0
   for family in families_by_barcode.values():
+    total += 1
+    count1 = family['count1']
+    count2 = family['count2']
+    if not args.summary:
+      print('{barcode}\t{count1}\t{count2}\t{read_name}'.format(**family))
     neighbors = family.get('neighbors')
-    if not neighbors:
-      continue
-    print('{barcode}\t{count1}\t{count2}\t{read_name}'.format(**family))
-    for neighbor in neighbors:
-      print(neighbor['barcode'])
+    if neighbors:
+      for neighbor in neighbors:
+        if not args.summary:
+          print('{barcode}\t{count1}\t{count2}\t{read_name}'.format(**neighbor))
+        count1 += neighbor['count1']
+        count2 += neighbor['count2']
+    if count1 >= 3 and count2 >= 3:
+      if not args.summary:
+        print('PASS!')
+      passing += 1
+    elif not args.summary:
+      print('fail')
+
+  print('{} families rescued out of {} ({:0.2f}%)'.format(passing, total, 100*passing/total))
 
 
 def make_pipeline(*commands):
