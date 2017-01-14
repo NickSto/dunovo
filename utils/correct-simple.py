@@ -9,7 +9,7 @@ import logging
 import argparse
 import subprocess
 
-ARG_DEFAULTS = {'initial_barcodes':20, 'mapq_thres':25, 'log':sys.stderr, 'volume':logging.ERROR}
+ARG_DEFAULTS = {'nbarcodes':20, 'mapq_thres':25, 'log':sys.stderr, 'volume':logging.ERROR}
 DESCRIPTION = """"""
 
 
@@ -18,7 +18,7 @@ def main(argv):
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.set_defaults(**ARG_DEFAULTS)
 
-  parser.add_argument('initial_barcodes', metavar='barcodes to try', type=int, nargs='?',
+  parser.add_argument('nbarcodes', metavar='barcodes to try', type=int, nargs='?',
     help='')
   parser.add_argument('-s', '--summary', action='store_true',
     help='Only print the summary of how many families were rescued.')
@@ -36,15 +36,13 @@ def main(argv):
   tone_down_logger()
 
   logging.info('Reading random barcodes from border-families.txt..')
-  # cat border-families.txt | paste - - | shuf --random-source=border-families.txt | head -n $initial_barcodes
+  rand_arg = '--random-source=border-families.txt'
   if args.random:
-    shuf_cmd = ('shuf',)
-  else:
-    shuf_cmd = ('shuf', '--random-source=border-families.txt')
-  process = make_pipeline(('cat', 'border-families.txt'),
-                          ('paste', '-', '-'),
-                          shuf_cmd,
-                          ('head', '-n', str(args.initial_barcodes)))
+    rand_arg = ''
+  pipeline = 'cat border-families.txt | paste - - | shuf {} | head -n {}'.format(rand_arg,
+                                                                                 args.nbarcodes)
+  commands = [cmd.split() for cmd in pipeline.split('|')]
+  process = make_pipeline(*commands)
   families_by_barcode = {}
   for line_raw in process.stdout:
     line = line_raw.rstrip('\r\n')
