@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 from __future__ import division
 from __future__ import print_function
+import os
 import sys
+import gzip
 import logging
 import argparse
 
 ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'log':sys.stderr,
-                'log_level':logging.ERROR}
+                'volume':logging.WARNING}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Correct barcodes using an alignment of all barcodes to themselves. Reads the
 alignment in SAM format and corrects the barcodes in an input "families" file (the output of
@@ -19,7 +21,7 @@ def main(argv):
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.set_defaults(**ARG_DEFAULTS)
 
-  parser.add_argument('families', type=argparse.FileType('r'),
+  parser.add_argument('families', type=open_as_text_or_gzip,
     help='The sorted output of make-barcodes.awk. The important part is that it\'s a tab-delimited '
          'file with at least 2 columns: the barcode sequence and order, and it must be sorted in '
          'the same order as the "reads" in the SAM file.')
@@ -27,45 +29,50 @@ def main(argv):
     help='Barcode alignment, in SAM format. Omit to read from stdin. The read names must be '
          'integers, representing the (1-based) order they appear in the families file.')
   parser.add_argument('-c', '--add-column', action='store_true',
-    help='Include corrected barcodes as an additional column in ')
+    help='Include corrected barcodes as an additional column in the output.')
   parser.add_argument('-d', '--dist', type=int,
     help='NM edit distance threshold. Default: %(default)s')
-  parser.add_argument('-q', '--qual', type=int,
+  parser.add_argument('-m', '--mapq', type=int,
     help='MAPQ threshold. Default: %(default)s')
   parser.add_argument('-p', '--pos', type=int,
     help='POS tolerance. Alignments will be ignored if abs(POS - 1) is greater than this value. '
          'Set to greater than the barcode length for no threshold. Default: %(default)s')
+  parser.add_argument('--limit', type=int,
+    help='Limit the number of lines that will be read from each input file, for testing purposes.')
   parser.add_argument('-L', '--tag-len', type=int,
     help='Length of each half of the barcode. If not given, it will be determined from the first '
          'barcode in the families file.')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
-  parser.add_argument('-D', '--debug', dest='log_level', action='store_const', const=logging.DEBUG,
+  parser.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL)
+  parser.add_argument('-v', '--verbose', dest='volume', action='store_const', const=logging.INFO)
+  parser.add_argument('-D', '--debug', dest='volume', action='store_const', const=logging.DEBUG,
     help='Print debug messages (very verbose).')
 
   args = parser.parse_args(argv[1:])
 
-  logging.basicConfig(stream=args.log, level=args.log_level, format='%(message)s')
+  logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
 
   logging.info('Building groups from SAM alignment..')
-  groups = read_alignment(args.sam, args.pos, args.qual, args.dist)
+  groups = read_alignment(args.sam, args.pos, args.mapq, args.dist, args.limit)
 
   logging.info('Reading barcode sequences from families file..')
-  votes, barcodes = count_barcodes(args.families)
+  votes, barcodes = count_barcodes(args.families, args.limit)
 
   #TODO: Instead of going through all the data again, instead at this point we could stream through
-  #      the lines in the families file, using the "member_to_group map" to look up each barcode in
+  #      the lines in the families file, using the "member_to_group" map to look up each barcode in
   #      "groups" and determine the correction. At that point we could compute all the corrections
   #      for the group for later (essentially compute the "corrections" table on the fly).
   logging.info('Building corrections table from collected data..')
   corrections = make_correction_table(groups, votes, barcodes)
 
   logging.info('Printing corrected output..')
-  print_corrected_output(args.families.name, corrections, barcodes, args.add_column)
+  families = open_as_text_or_gzip(args.families.name)
+  print_corrected_output(families, corrections, barcodes, args.add_column, args.limit)
 
 
-def read_alignment(sam, pos_thres, qual_thres, dist_thres):
+def read_alignment(sam, pos_thres, mapq_thres, dist_thres, limit=None):
   # Group reads (barcodes) into sets of reads linked by alignments to each other.
   # Each group of reads is a dict mapping read names to read sequences. "groups" is a list of these
   # dicts.
@@ -75,13 +82,15 @@ def read_alignment(sam, pos_thres, qual_thres, dist_thres):
   line_num = 0
   for line in sam:
     line_num += 1
+    if limit is not None and line_num > limit:
+      break
     if line.startswith('@'):
       logging.debug('Header line ({})'.format(line_num))
       continue
     fields = line.split('\t')
     # if fields[0] == '18190' or fields[2] == '18190':
     #   logging.getLogger().setLevel(logging.DEBUG)
-    logging.debug('Ref {}, read {} ({}):'.format(fields[0], fields[2], fields[9]))
+    logging.debug('read {} -> ref {} (read seq {}):'.format(fields[2], fields[0], fields[9]))
     try:
       read_name = int(fields[0])
       ref_name = int(fields[2])
@@ -103,14 +112,13 @@ def read_alignment(sam, pos_thres, qual_thres, dist_thres):
                    .format(fields[1], fields[3], fields[4]))
       continue
     if flags & 4:
-      # Read unmapped.
       logging.debug('\tRead unmapped (flag & 4 == True)')
       continue
     if abs(pos - 1) > pos_thres:
       logging.debug('\tAlignment failed pos filter: abs({} - 1) > {}'.format(pos, pos_thres))
       continue
-    if mapq < qual_thres:
-      logging.debug('\tAlignment failed mapq filter: {} > {}'.format(mapq, qual_thres))
+    if mapq < mapq_thres:
+      logging.debug('\tAlignment failed mapq filter: {} > {}'.format(mapq, mapq_thres))
       continue
     nm = None
     for tag in fields[11:]:
@@ -180,7 +188,7 @@ def join_groups(groups, member_to_group, ref_name, read_name):
     member_to_group[name] = group_i_ref
 
 
-def count_barcodes(families):
+def count_barcodes(families, limit=None):
   """Tally how many times each barcode appears in the raw data.
   Returns two lists: "votes" and "barcodes". In both, each element corresponds to a different
   barcode, in the order it appears in families. But the first element is None, to correspond with
@@ -192,7 +200,11 @@ def count_barcodes(families):
   barcodes = []
   vote = None
   last_barcode = None
+  line_num = 0
   for line in families:
+    line_num += 1
+    if limit is not None and line_num > limit:
+      break
     fields = line.rstrip('\r\n').split('\t')
     barcode = fields[0]
     if barcode != last_barcode:
@@ -239,36 +251,40 @@ def choose_read(group, votes):
   return best_read
 
 
-def print_corrected_output(families_path, corrections, barcodes, add_column=False, tag_len=None):
+def print_corrected_output(families, corrections, barcodes, add_column=False, tag_len=None,
+                           limit=None):
   # Determine barcode tag length if not given.
   if tag_len is None:
     tag_len = len(barcodes[1])//2
   line_num = 0
   barcode_num = 0
   barcode_last = None
-  with open(families_path) as families:
-    for line in families:
-      line_num += 1
-      fields = line.rstrip('\r\n').split('\t')
-      raw_barcode = fields[0]
-      raw_order = fields[1]
-      if raw_barcode != barcode_last:
-        barcode_num += 1
-        barcode_last = raw_barcode
-      try:
-        corrected_barcode_num = corrections[barcode_num]
-      except KeyError:
-        logging.debug('Barcode number {} not in corrections table. Families file line {}, barcode: '
-                      '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
-        corrected_barcode_num = barcode_num
-      corrected_barcode = barcodes[corrected_barcode_num]
-      ordered_barcode, corrected_order = order_barcode(corrected_barcode, raw_order, tag_len)
-      fields[1] = corrected_order
-      if add_column:
-        fields[1:1] = [ordered_barcode]
-      else:
-        fields[0] = ordered_barcode
-      print(*fields, sep='\t')
+  for line in families:
+    line_num += 1
+    if limit is not None and line_num > limit:
+      break
+    fields = line.rstrip('\r\n').split('\t')
+    raw_barcode = fields[0]
+    raw_order = fields[1]
+    if raw_barcode != barcode_last:
+      barcode_num += 1
+      barcode_last = raw_barcode
+    try:
+      corrected_barcode_num = corrections[barcode_num]
+    except KeyError:
+      logging.debug('Barcode number {} not in corrections table. Families file line {}, barcode: '
+                    '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
+      corrected_barcode_num = barcode_num
+    corrected_barcode = barcodes[corrected_barcode_num]
+    ordered_barcode, corrected_order = order_barcode(corrected_barcode, raw_order, tag_len)
+    fields[1] = corrected_order
+    if add_column:
+      # Insert the corrected barcode between fields 0 and 1 (the original barcode and the order).
+      fields[1:1] = [ordered_barcode]
+    else:
+      # Replace field 0 (original barcode) with the corrected barcode.
+      fields[0] = ordered_barcode
+    print(*fields, sep='\t')
 
 
 def order_barcode(barcode, raw_order, tag_len=12):
@@ -282,6 +298,41 @@ def order_barcode(barcode, raw_order, tag_len=12):
     return alpha + beta, 'ab'
   else:
     return beta + alpha, 'ba'
+
+
+def open_as_text_or_gzip(path):
+  """Return an open file-like object reading the path as a text file or a gzip file, depending on
+  which it looks like."""
+  if detect_gzip(path):
+    return gzip.open(path, 'r')
+  else:
+    return open(path, 'rU')
+
+
+def detect_gzip(path):
+  """Return True if the file looks like a gzip file: ends with .gz or contains non-ASCII bytes."""
+  ext = os.path.splitext(path)[1]
+  if ext == '.gz':
+    return True
+  elif ext in ('.txt', '.tsv', '.csv'):
+    return False
+  with open(path) as fh:
+    is_not_ascii = detect_non_ascii(fh.read(100))
+  if is_not_ascii:
+    return True
+
+
+def detect_non_ascii(bytes, max_test=100):
+  """Return True if any of the first "max_test" bytes are non-ASCII (the high bit set to 1).
+  Return False otherwise."""
+  for i, char in enumerate(bytes):
+    # Is the high bit a 1?
+    if ord(char) & 128:
+      return True
+    if i >= max_test:
+      return False
+  return False
+
 
 
 def tone_down_logger():
