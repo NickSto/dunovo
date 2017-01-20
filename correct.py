@@ -84,55 +84,10 @@ def read_alignment(sam, pos_thres, mapq_thres, dist_thres, limit=None):
     line_num += 1
     if limit is not None and line_num > limit:
       break
-    if line.startswith('@'):
-      logging.debug('Header line ({})'.format(line_num))
+    alignment = parse_line(line, pos_thres, mapq_thres, dist_thres)
+    if not alignment:
       continue
-    fields = line.split('\t')
-    # if fields[0] == '18190' or fields[2] == '18190':
-    #   logging.getLogger().setLevel(logging.DEBUG)
-    logging.debug('read {} -> ref {} (read seq {}):'.format(fields[2], fields[0], fields[9]))
-    try:
-      read_name = int(fields[0])
-      ref_name = int(fields[2])
-    except ValueError:
-      if fields[2] == '*':
-        logging.debug('\tRead unmapped (reference == "*")')
-        continue
-      else:
-        logging.error('Non-integer read name(s) on line {}: "{}", "{}".'
-                      .format(line_num, read_name, ref_name))
-        raise
-    # Apply alignment quality filters.
-    try:
-      flags = int(fields[1])
-      pos = int(fields[3])
-      mapq = int(fields[4])
-    except ValueError:
-      logging.warn('\tNon-integer flag ({}), pos ({}), or mapq ({})'
-                   .format(fields[1], fields[3], fields[4]))
-      continue
-    if flags & 4:
-      logging.debug('\tRead unmapped (flag & 4 == True)')
-      continue
-    if abs(pos - 1) > pos_thres:
-      logging.debug('\tAlignment failed pos filter: abs({} - 1) > {}'.format(pos, pos_thres))
-      continue
-    if mapq < mapq_thres:
-      logging.debug('\tAlignment failed mapq filter: {} > {}'.format(mapq, mapq_thres))
-      continue
-    nm = None
-    for tag in fields[11:]:
-      if tag.startswith('NM:i:'):
-        try:
-          nm = int(tag[5:])
-        except ValueError:
-          logging.error('Invalid NM tag "{}" on line {}.'.format(tag, line_num))
-          raise
-        break
-    assert nm is not None, line_num
-    if nm > dist_thres:
-      logging.debug('\tAlignment failed NM distance filter: {} > {}'.format(nm, dist_thres))
-      continue
+    read_name, ref_name = alignment
     # It's a good alignment. Add it to a group.
     group_i_ref = member_to_group.get(ref_name)
     group_i_read = member_to_group.get(read_name)
@@ -170,6 +125,61 @@ def read_alignment(sam, pos_thres, mapq_thres, dist_thres, limit=None):
       member_to_group[read_name] = group_i
     # logging.getLogger().setLevel(logging.ERROR)
   return groups
+
+
+def parse_line(line, pos_thres, mapq_thres, dist_thres):
+  """Parse the line and return (read_name, ref_name) if it passes the filters, None if it's a header
+  line, and False otherwise."""
+  if line.startswith('@'):
+    logging.debug('Header line ({})'.format(line_num))
+    return None
+  fields = line.split('\t')
+  # if fields[0] == '18190' or fields[2] == '18190':
+  #   logging.getLogger().setLevel(logging.DEBUG)
+  logging.debug('read {} -> ref {} (read seq {}):'.format(fields[2], fields[0], fields[9]))
+  try:
+    read_name = int(fields[0])
+    ref_name = int(fields[2])
+  except ValueError:
+    if fields[2] == '*':
+      logging.debug('\tRead unmapped (reference == "*")')
+      return False
+    else:
+      logging.error('Non-integer read name(s) on line {}: "{}", "{}".'
+                    .format(line_num, read_name, ref_name))
+      raise
+  # Apply alignment quality filters.
+  try:
+    flags = int(fields[1])
+    pos = int(fields[3])
+    mapq = int(fields[4])
+  except ValueError:
+    logging.warn('\tNon-integer flag ({}), pos ({}), or mapq ({})'
+                 .format(fields[1], fields[3], fields[4]))
+    return False
+  if flags & 4:
+    logging.debug('\tRead unmapped (flag & 4 == True)')
+    return False
+  if abs(pos - 1) > pos_thres:
+    logging.debug('\tAlignment failed pos filter: abs({} - 1) > {}'.format(pos, pos_thres))
+    return False
+  if mapq < mapq_thres:
+    logging.debug('\tAlignment failed mapq filter: {} > {}'.format(mapq, mapq_thres))
+    return False
+  nm = None
+  for tag in fields[11:]:
+    if tag.startswith('NM:i:'):
+      try:
+        nm = int(tag[5:])
+      except ValueError:
+        logging.error('Invalid NM tag "{}" on line {}.'.format(tag, line_num))
+        raise
+      break
+  assert nm is not None, line_num
+  if nm > dist_thres:
+    logging.debug('\tAlignment failed NM distance filter: {} > {}'.format(nm, dist_thres))
+    return False
+  return read_name, ref_name
 
 
 def join_groups(groups, member_to_group, ref_name, read_name):
