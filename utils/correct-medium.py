@@ -9,7 +9,7 @@ import argparse
 import collections
 
 VERBOSE = (logging.DEBUG+logging.INFO)//2
-ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'log':sys.stderr,
+ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'output':True, 'log':sys.stderr,
                 'volume':logging.WARNING}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Correct barcodes using an alignment of all barcodes to themselves. Reads the
@@ -48,6 +48,7 @@ def main(argv):
   parser.add_argument('-c', '--avoid-cycles', action='store_true')
   parser.add_argument('--limit', type=int,
     help='Limit the number of lines that will be read from each input file, for testing purposes.')
+  parser.add_argument('-n', '--no-output', dest='output', action='store_false')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
   parser.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL)
@@ -76,7 +77,7 @@ def main(argv):
 
   logging.info('Reading the families.tsv again to print corrected output..')
   families = open_as_text_or_gzip(args.families.name)
-  print_corrected_output(families, correction_table, orders, args.prepend, args.limit)
+  print_corrected_output(families, correction_table, orders, args.prepend, args.limit, args.output)
 
 
 def detect_format(reads_file, max_lines=7):
@@ -280,17 +281,31 @@ def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, di
     group = reverse_table[correct]
     group.add(original)
     group.add(correct)
+  # Calculate and print statistics on the run.
   self_mapping = 0
+  correct_barcodes = 0
   bins = collections.defaultdict(int)
   if logging.getLogger().getEffectiveLevel() <= logging.INFO:
     for original, correct in correction_table.items():
       if original == correct:
         self_mapping += 1
-    for group in reverse_table.values():
+    correct_barcodes = len(set(correction_table.values()))
+    for correct, group in reverse_table.items():
       bins[len(group)] += 1
-  logging.info('{} correction mappings made, with {} self-mappings, {replacements} corrections '
-               'replaced, {corrections} "correct" barcodes corrected.'
-               .format(len(correction_table), self_mapping, **correction))
+      # Verify that the correction_table agrees with the reverse_table.
+      for barcode in group:
+        correct2 = correction_table.get(barcode)
+        if correct2:
+          if correct != correct2:
+            logging.warn('correction_table in disagreement with reverse_table: Correction for {} '
+                         'in correction_table is {}, but in reverse_table it\'s {}'
+                         .format(barcode, correct2, correct))
+        else:
+          logging.warn('Correction for {} not in table even though it\'s in a group (the group for '
+                       '{}).'.format(barcode, correct))
+  logging.info('{} correction mappings made, with {} self-mappings, {} total correct barcodes, '
+               '{replacements} corrections replaced, {corrections} "correct" barcodes corrected.'
+               .format(len(correction_table), self_mapping, correct_barcodes, **correction))
   width = None
   for group_size in sorted(bins.keys()):
     if width is None:
@@ -317,7 +332,8 @@ def get_orders(families_file, limit=None):
   return orders
 
 
-def print_corrected_output(families_file, corrections, orders, prepend=False, tag_len=None, limit=None):
+def print_corrected_output(families_file, corrections, orders, prepend=False, tag_len=None,
+                           limit=None, output=True):
   # Determine barcode tag length if not given.
   if tag_len is None:
     tag_len = len(corrections.keys()[1])//2
@@ -369,7 +385,8 @@ def print_corrected_output(families_file, corrections, orders, prepend=False, ta
     else:
       fields[0] = correct_barcode
       fields[1] = correct_order
-    print(*fields, sep='\t')
+    if output:
+      print(*fields, sep='\t')
   families_file.close()
   if corrections_in_this_family:
     corrected['reads'] += corrections_in_this_family
