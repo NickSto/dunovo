@@ -41,11 +41,12 @@ def main(argv):
   parser.add_argument('-p', '--pos', type=int,
     help='POS tolerance. Alignments will be ignored if abs(POS - 1) is greater than this value. '
          'Set to greater than the barcode length for no threshold. Default: %(default)s')
-  parser.add_argument('--limit', type=int,
-    help='Limit the number of lines that will be read from each input file, for testing purposes.')
   parser.add_argument('-L', '--tag-len', type=int,
     help='Length of each half of the barcode. If not given, it will be determined from the first '
          'barcode in the families file.')
+  parser.add_argument('-o', '--reorder', action='store_true')
+  parser.add_argument('--limit', type=int,
+    help='Limit the number of lines that will be read from each input file, for testing purposes.')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
   parser.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL)
@@ -66,8 +67,11 @@ def main(argv):
   correction_table = make_correction_table(args.sam, names_to_barcodes, args.pos, args.mapq,
                                            args.dist, args.limit)
 
-  logging.info('Reading the families.tsv to get the orders of the barcodes..')
-  orders = get_orders(args.families, args.limit)
+  if args.reorder:
+    logging.info('Reading the families.tsv to get the orders of the barcodes..')
+    orders = get_orders(args.families, args.limit)
+  else:
+    orders = None
 
   logging.info('Reading the families.tsv again to print corrected output..')
   families = open_as_text_or_gzip(args.families.name)
@@ -308,7 +312,7 @@ def print_corrected_output(families_file, corrections, orders, prepend=False, ta
       if corrections_in_this_family:
         corrected['reads'] += corrections_in_this_family
         corrected['barcodes'] += 1
-        if raw_order != correct_order:
+        if orders and raw_order != correct_order:
           corrected['orders'] += 1
         family_info += '\tCORRECTED!'
       else:
@@ -323,7 +327,8 @@ def print_corrected_output(families_file, corrections, orders, prepend=False, ta
       reads[1] += 1
     if raw_barcode in corrections:
       correct_barcode = corrections[raw_barcode]
-      correct_order = orders[correct_barcode]
+      if orders:
+        correct_order = orders[correct_barcode]
       corrections_in_this_family += 1
     else:
       correct_barcode = raw_barcode
