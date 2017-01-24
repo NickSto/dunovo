@@ -45,6 +45,7 @@ def main(argv):
     help='Length of each half of the barcode. If not given, it will be determined from the first '
          'barcode in the families file.')
   parser.add_argument('-o', '--reorder', action='store_true')
+  parser.add_argument('-c', '--avoid-cycles', action='store_true')
   parser.add_argument('--limit', type=int,
     help='Limit the number of lines that will be read from each input file, for testing purposes.')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
@@ -65,7 +66,7 @@ def main(argv):
 
   logging.info('Reading the SAM to build groups from SAM alignment..')
   correction_table = make_correction_table(args.sam, names_to_barcodes, args.pos, args.mapq,
-                                           args.dist, args.limit)
+                                           args.dist, args.avoid_cycles, args.limit)
 
   if args.reorder:
     logging.info('Reading the families.tsv to get the orders of the barcodes..')
@@ -224,11 +225,13 @@ def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
   sam_file.close()
 
 
-def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
+def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres,
+                          avoid_cycles=False, limit=None):
   """Make a table mapping original barcode numbers to correct barcode numbers."""
   correction_table = {}
   # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
   reverse_table = collections.defaultdict(set)
+  correction = {'replacements':0, 'corrections':0}
   line_num = 0
   for read_name, ref_name in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     line_num += 1
@@ -242,13 +245,21 @@ def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, di
     # Check if the "correct" barcode has already been corrected.
     if correct in correction_table:
       corrected_correct = correction_table[correct]
-      correction_table[original] = corrected_correct
-      group = reverse_table[corrected_correct]
-      group.add(correct)
-      group.add(original)
-      group.add(corrected_correct)  # Not necessary, but just in case.
-      # And that's all we need to do.
-      continue
+      if avoid_cycles and corrected_correct == original:
+        # It's a loop (a cycle).
+        logging.debug('Barcode {} corrected to {}, which was corrected back to {} (a loop).'
+                      .format(original, correct, corrected_correct))
+      else:
+        correction_table[original] = corrected_correct
+        group = reverse_table[corrected_correct]
+        group.add(correct)
+        group.add(original)
+        group.add(corrected_correct)  # Not necessary, but just in case.
+        logging.debug('Barcode {} corrected to {}, which itself was corrected to {}.'
+                      .format(original, correct, corrected_correct))
+        correction['corrections'] += 1
+        # And that's all we need to do.
+        continue
     # Check if this barcode has already been corrected to something else.
     #TODO: What if the "correct" barcode has already been corrected
     #      AND the original has already been corrected to something else?
@@ -258,8 +269,9 @@ def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, di
       old_correct = correction_table[original]
       group = reverse_table[old_correct]
       reverse_table[correct] = group
-      logging.debug('Read {} already corrected to {}. Changing correction to {}.'
+      logging.debug('Barcode {} already corrected to {}. Changing correction to {}.'
                     .format(original, old_correct, correct))
+      correction['replacements'] += 1
       # Then, change the mapping for each member of the group.
       for member in group:
         correction_table[member] = correct
@@ -268,6 +280,24 @@ def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, di
     group = reverse_table[correct]
     group.add(original)
     group.add(correct)
+  self_mapping = 0
+  bins = collections.defaultdict(int)
+  if logging.getLogger().getEffectiveLevel() <= logging.INFO:
+    for original, correct in correction_table.items():
+      if original == correct:
+        self_mapping += 1
+    for group in reverse_table.values():
+      bins[len(group)] += 1
+  logging.info('{} correction mappings made, with {} self-mappings, {replacements} corrections '
+               'replaced, {corrections} "correct" barcodes corrected.'
+               .format(len(correction_table), self_mapping, **correction))
+  width = None
+  for group_size in sorted(bins.keys()):
+    if width is None:
+      count = bins[group_size]
+      width = len(str(count))
+      count_fmt = '{:'+str(width)+'}'
+    logging.debug((count_fmt+' groups of size {}').format(bins[group_size], group_size))
   return correction_table
 
 
