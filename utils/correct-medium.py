@@ -27,8 +27,8 @@ def main(argv):
     help='The sorted output of make-barcodes.awk. The important part is that it\'s a tab-delimited '
          'file with at least 2 columns: the barcode sequence and order, and it must be sorted in '
          'the same order as the "reads" in the SAM file.')
-  parser.add_argument('fastq', type=open_as_text_or_gzip,
-    help='The fastq file given to the aligner. Used to get barcode sequences from read names.')
+  parser.add_argument('reads', type=open_as_text_or_gzip,
+    help='The fasta/q file given to the aligner. Used to get barcode sequences from read names.')
   parser.add_argument('sam', type=argparse.FileType('r'), nargs='?',
     help='Barcode alignment, in SAM format. Omit to read from stdin. The read names must be '
          'integers, representing the (1-based) order they appear in the families file.')
@@ -59,8 +59,8 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
 
-  logging.info('Reading the fastq to map read names to barcodes..')
-  names_to_barcodes = map_names_to_barcodes(args.fastq, args.limit)
+  logging.info('Reading the fasta/q to map read names to barcodes..')
+  names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
 
   logging.info('Reading the SAM to build groups from SAM alignment..')
   correction_table = make_correction_table(args.sam, names_to_barcodes, args.pos, args.mapq,
@@ -74,34 +74,100 @@ def main(argv):
   print_corrected_output(families, correction_table, orders, args.prepend, args.limit)
 
 
-def map_names_to_barcodes(fastq, limit=None):
-  """Map barcode names to their sequences."""
+def detect_format(reads_file, max_lines=7):
+  """Detect whether a file is a fastq or a fasta, based on its content."""
+  fasta_votes = 0
+  fastq_votes = 0
   line_num = 0
-  names_to_barcodes = {}
-  for line in fastq:
+  for line in reads_file:
     line_num += 1
-    if limit is not None and line_num > limit*4:
+    if line_num % 4 == 1:
+      if line.startswith('@'):
+        fastq_votes += 1
+      elif line.startswith('>'):
+        fasta_votes += 1
+    elif line_num % 4 == 3:
+      if line.startswith('+'):
+        fastq_votes += 1
+      elif line.startswith('>'):
+        fasta_votes += 1
+    if line_num >= max_lines:
       break
+  reads_file.seek(0)
+  if fasta_votes > fastq_votes:
+    return 'fasta'
+  elif fastq_votes > fasta_votes:
+    return 'fastq'
+  else:
+    return None
+
+
+def read_fastaq(reads_file):
+  filename = reads_file.name
+  if filename.endswith('.fa') or filename.endswith('.fasta'):
+    format = 'fasta'
+  elif filename.endswith('.fq') or filename.endswith('.fastq'):
+    format = 'fastq'
+  else:
+    format = detect_format(reads_file)
+  if format == 'fasta':
+    return read_fasta(reads_file)
+  elif format == 'fastq':
+    return read_fastq(reads_file)
+
+
+def read_fasta(reads_file):
+  """Read a FASTA file, yielding read names and sequences.
+  NOTE: This assumes sequences are only one line!"""
+  line_num = 0
+  for line_raw in reads_file:
+    line = line_raw.rstrip('\r\n')
+    line_num += 1
+    if line_num % 2 == 1:
+      assert line.startswith('>'), line
+      read_name = line[1:]
+    elif line_num % 2 == 0:
+      read_seq = line
+      yield read_name, read_seq
+
+
+def read_fastq(reads_file):
+  """Read a FASTQ file, yielding read names and sequences.
+  NOTE: This assumes sequences are only one line!"""
+  line_num = 0
+  for line in reads_file:
+    line_num += 1
     if line_num % 4 == 1:
       assert line.startswith('@'), line
-      name_str = line[1:].rstrip('\r\n')
-      try:
-        name = int(name_str)
-      except ValueError:
-        logging.critical('non-int read name "{}"'.format(name))
-        raise
+      read_name = line[1:].rstrip('\r\n')
     elif line_num % 4 == 2:
-      barcode = line.rstrip('\r\n')
-      names_to_barcodes[name] = barcode
-  fastq.close()
+      read_seq = line.rstrip('\r\n')
+      yield read_name, read_seq
+
+
+def map_names_to_barcodes(reads_file, limit=None):
+  """Map barcode names to their sequences."""
+  names_to_barcodes = {}
+  read_num = 0
+  for read_name, read_seq in read_fastaq(reads_file):
+    read_num += 1
+    if limit is not None and read_num > limit:
+      break
+    try:
+      name = int(read_name)
+    except ValueError:
+      logging.critical('non-int read name "{}"'.format(name))
+      raise
+    names_to_barcodes[name] = read_seq
+  reads_file.close()
   return names_to_barcodes
 
 
-def parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
+def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
   """Parse the SAM file and yield reads that pass the filters.
   Returns (read_name, ref_name)."""
   line_num = 0
-  for line in sam:
+  for line in sam_file:
     line_num += 1
     if line.startswith('@'):
       logging.debug('Header line ({})'.format(line_num))
@@ -151,16 +217,16 @@ def parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
       logging.debug('\tAlignment failed NM distance filter: {} > {}'.format(nm, dist_thres))
       continue
     yield read_name, ref_name
-  sam.close()
+  sam_file.close()
 
 
-def make_correction_table(sam, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
+def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
   """Make a table mapping original barcode numbers to correct barcode numbers."""
   correction_table = {}
   # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
   reverse_table = collections.defaultdict(set)
   line_num = 0
-  for read_name, ref_name in parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
+  for read_name, ref_name in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     line_num += 1
     if limit is not None and line_num > limit:
       break
@@ -201,11 +267,11 @@ def make_correction_table(sam, names_to_barcodes, pos_thres, mapq_thres, dist_th
   return correction_table
 
 
-def get_orders(families, limit=None):
+def get_orders(families_file, limit=None):
   """Map barcode sequences to their order strings ("ab" or "ba")."""
   orders = {}
   line_num = 0
-  for line in families:
+  for line in families_file:
     line_num += 1
     if limit is not None and line_num > limit:
       break
@@ -213,11 +279,11 @@ def get_orders(families, limit=None):
     barcode = fields[0]
     order = fields[1]
     orders[barcode] = order
-  families.close()
+  families_file.close()
   return orders
 
 
-def print_corrected_output(families, corrections, orders, prepend=False, tag_len=None, limit=None):
+def print_corrected_output(families_file, corrections, orders, prepend=False, tag_len=None, limit=None):
   # Determine barcode tag length if not given.
   if tag_len is None:
     tag_len = len(corrections.keys()[1])//2
@@ -228,7 +294,7 @@ def print_corrected_output(families, corrections, orders, prepend=False, tag_len
   corrected = {'reads':0, 'barcodes':0, 'orders':0}
   reads = [0, 0]
   corrections_in_this_family = 0
-  for line in families:
+  for line in families_file:
     line_num += 1
     if limit is not None and line_num > limit:
       break
@@ -269,7 +335,7 @@ def print_corrected_output(families, corrections, orders, prepend=False, tag_len
       fields[0] = correct_barcode
       fields[1] = correct_order
     print(*fields, sep='\t')
-  families.close()
+  families_file.close()
   if corrections_in_this_family:
     corrected['reads'] += corrections_in_this_family
     corrected['barcodes'] += 1
