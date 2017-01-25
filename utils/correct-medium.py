@@ -171,7 +171,7 @@ def map_names_to_barcodes(reads_file, limit=None):
 
 def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
   """Parse the SAM file and yield reads that pass the filters.
-  Returns (read_name, ref_name)."""
+  Returns (qname, rname)."""
   line_num = 0
   for line in sam_file:
     line_num += 1
@@ -181,15 +181,15 @@ def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     fields = line.split('\t')
     logging.debug('read {} -> ref {} (read seq {}):'.format(fields[2], fields[0], fields[9]))
     try:
-      read_name = int(fields[0])
-      ref_name = int(fields[2])
+      qname = int(fields[0])
+      rname = int(fields[2])
     except ValueError:
       if fields[2] == '*':
         logging.debug('\tRead unmapped (reference == "*")')
         continue
       else:
         logging.error('Non-integer read name(s) on line {}: "{}", "{}".'
-                      .format(line_num, read_name, ref_name))
+                      .format(line_num, qname, rname))
         raise
     # Apply alignment quality filters.
     try:
@@ -222,27 +222,44 @@ def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     if nm > dist_thres:
       logging.debug('\tAlignment failed NM distance filter: {} > {}'.format(nm, dist_thres))
       continue
-    yield read_name, ref_name
+    yield qname, rname
   sam_file.close()
 
 
-def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres,
-                          avoid_cycles=False, limit=None):
-  """Make a table mapping original barcode numbers to correct barcode numbers."""
-  correction_table = {}
+def read_alignments(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
+  """Read the alignments from the SAM file.
+  Returns a dict mapping each reference sequence (RNAME) to sets of sequences (QNAMEs) that align to
+  it."""
+  query_to_refs = collections.defaultdict(set)
+  ref_to_queries = collections.defaultdict(set)
   # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
-  reverse_table = collections.defaultdict(set)
-  correction = {'replacements':0, 'corrections':0}
   line_num = 0
-  for read_name, ref_name in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
+  for qname, rname in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     line_num += 1
     if limit is not None and line_num > limit:
       break
     # Skip self-alignments.
-    if ref_name == read_name:
+    if rname == qname:
       continue
-    correct = names_to_barcodes[ref_name]
-    original = names_to_barcodes[read_name]
+    qseq = names_to_barcodes[qname]
+    rseq = names_to_barcodes[rname]
+    query_to_refs[qseq].add(rseq)
+    ref_to_queries[rseq].add(qseq)
+  return query_to_refs, ref_to_queries
+
+
+def make_correction_table(query_to_refs, ref_to_queries, avoid_cycles=False):
+  """Make a table mapping original barcode numbers to correct barcode numbers."""
+  correction_table = {}
+  # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
+  reverse_table = collections.defaultdict(set)
+  # Go through the alignments.
+  for ref, queries in ref_to_queries.items():
+    for query in queries:
+      # Does one of the queries also align to a different reference?
+      if query in ref_to_queries:
+        pass
+"""
     # Check if the "correct" barcode has already been corrected.
     if correct in correction_table:
       corrected_correct = correction_table[correct]
@@ -281,6 +298,7 @@ def make_correction_table(sam_file, names_to_barcodes, pos_thres, mapq_thres, di
     group = reverse_table[correct]
     group.add(original)
     group.add(correct)
+"""
   # Calculate and print statistics on the run.
   self_mapping = 0
   correct_barcodes = 0
