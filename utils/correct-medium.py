@@ -53,7 +53,7 @@ def main(argv):
     help='Print a list of the unique isoforms')
   parser.add_argument('--struct-human', action='store_true')
   parser.add_argument('-V', '--visualize', nargs='?',
-    help='Produce a visualization of the graph of alignments and write the image to this file. '
+    help='Produce a visualization of the unique structures write the image to this file. '
          'If you omit a filename, it will be displayed in a window.')
   parser.add_argument('-F', '--viz-format', choices=('dot', 'graphviz', 'png'))
   parser.add_argument('-n', '--no-output', dest='output', action='store_false')
@@ -83,10 +83,9 @@ def main(argv):
     logging.info('Counting the unique barcode networks..')
     structures = count_structures(graph, family_counts)
     print_structures(structures, args.struct_human)
-
-  if args.visualize != 0:
-    logging.info('Generating a visualization of barcode networks..')
-    visualize(graph, args.visualize, args.viz_format)
+    if args.visualize != 0:
+      logging.info('Generating a visualization of barcode networks..')
+      visualize([s['graph'] for s in structures], args.visualize, args.viz_format)
 
   logging.info('Building the correction table from the graph..')
   corrections = make_correction_table(graph, family_counts, args.choose_by)
@@ -480,12 +479,15 @@ def get_node_data(graph, degrees, family_counts):
   return sorted(node_data, key=lambda datum: datum['degree'], reverse=True)
 
 
-def visualize(graph, viz_path, args_viz_format):
+def visualize(graphs, viz_path, args_viz_format):
     import matplotlib
     from networkx.drawing.nx_agraph import graphviz_layout
     from networkx.drawing.nx_pydot import write_dot
-    pos = graphviz_layout(graph)
-    networkx.draw(graph, pos)
+    meta_graph = networkx.Graph()
+    for graph in graphs:
+      add_graph(meta_graph, graph)
+    pos = graphviz_layout(meta_graph)
+    networkx.draw(meta_graph, pos)
     if viz_path:
       ext = os.path.splitext(viz_path)[1]
       if ext == '.dot':
@@ -497,7 +499,7 @@ def visualize(graph, viz_path, args_viz_format):
     if viz_format == 'graphviz':
       assert viz_path is not None, 'Must provide a filename to --visualize if using --viz-format "graphviz".'
       base_path = os.path.splitext(viz_path)
-      write_dot(graph, base_path+'.dot')
+      write_dot(meta_graph, base_path+'.dot')
       run_command('dot', '-T', 'png', '-o', base_path+'.png', base_path+'.dot')
       logging.info('Wrote image of graph to '+base_path+'.dot')
     elif viz_format == 'png':
@@ -505,6 +507,15 @@ def visualize(graph, viz_path, args_viz_format):
         matplotlib.pyplot.show()
       else:
         matplotlib.pyplot.savefig(viz_path)
+
+
+def add_graph(graph, subgraph):
+  # I'm sure there's a function in the library for this, but just cause I need it quick..
+  for node in subgraph.nodes():
+    graph.add_node(node)
+  for edge in subgraph.edges():
+    graph.add_edge(*edge)
+  return graph
 
 
 def open_as_text_or_gzip(path):
