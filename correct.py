@@ -6,9 +6,13 @@ import sys
 import gzip
 import logging
 import argparse
+import resource
+import subprocess
+import networkx
 
-ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'log':sys.stderr,
-                'volume':logging.WARNING}
+VERBOSE = (logging.DEBUG+logging.INFO)//2
+ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'choose_by':'reads', 'output':True,
+                'visualize':0, 'viz_format':'png', 'log':sys.stderr, 'volume':logging.WARNING}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Correct barcodes using an alignment of all barcodes to themselves. Reads the
 alignment in SAM format and corrects the barcodes in an input "families" file (the output of
@@ -25,11 +29,13 @@ def main(argv):
     help='The sorted output of make-barcodes.awk. The important part is that it\'s a tab-delimited '
          'file with at least 2 columns: the barcode sequence and order, and it must be sorted in '
          'the same order as the "reads" in the SAM file.')
+  parser.add_argument('reads', type=open_as_text_or_gzip,
+    help='The fasta/q file given to the aligner. Used to get barcode sequences from read names.')
   parser.add_argument('sam', type=argparse.FileType('r'), nargs='?',
     help='Barcode alignment, in SAM format. Omit to read from stdin. The read names must be '
          'integers, representing the (1-based) order they appear in the families file.')
-  parser.add_argument('-c', '--add-column', action='store_true',
-    help='Include corrected barcodes as an additional column in the output.')
+  parser.add_argument('-P', '--prepend', action='store_true',
+    help='Prepend the corrected barcodes and orders to the original columns.')
   parser.add_argument('-d', '--dist', type=int,
     help='NM edit distance threshold. Default: %(default)s')
   parser.add_argument('-m', '--mapq', type=int,
@@ -37,15 +43,25 @@ def main(argv):
   parser.add_argument('-p', '--pos', type=int,
     help='POS tolerance. Alignments will be ignored if abs(POS - 1) is greater than this value. '
          'Set to greater than the barcode length for no threshold. Default: %(default)s')
-  parser.add_argument('--limit', type=int,
-    help='Limit the number of lines that will be read from each input file, for testing purposes.')
-  parser.add_argument('-L', '--tag-len', type=int,
+  parser.add_argument('-t', '--tag-len', type=int,
     help='Length of each half of the barcode. If not given, it will be determined from the first '
          'barcode in the families file.')
+  parser.add_argument('-c', '--choose-by', choices=('reads', 'connectivity'))
+  parser.add_argument('--limit', type=int,
+    help='Limit the number of lines that will be read from each input file, for testing purposes.')
+  parser.add_argument('-S', '--structures', action='store_true',
+    help='Print a list of the unique isoforms')
+  parser.add_argument('--struct-human', action='store_true')
+  parser.add_argument('-V', '--visualize', nargs='?',
+    help='Produce a visualization of the unique structures write the image to this file. '
+         'If you omit a filename, it will be displayed in a window.')
+  parser.add_argument('-F', '--viz-format', choices=('dot', 'graphviz', 'png'))
+  parser.add_argument('-n', '--no-output', dest='output', action='store_false')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
   parser.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL)
-  parser.add_argument('-v', '--verbose', dest='volume', action='store_const', const=logging.INFO)
+  parser.add_argument('-i', '--info', dest='volume', action='store_const', const=logging.INFO)
+  parser.add_argument('-v', '--verbose', dest='volume', action='store_const', const=VERBOSE)
   parser.add_argument('-D', '--debug', dest='volume', action='store_const', const=logging.DEBUG,
     help='Print debug messages (very verbose).')
 
@@ -54,80 +70,128 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
 
-  logging.info('Building groups from SAM alignment..')
-  groups = read_alignment(args.sam, args.pos, args.mapq, args.dist, args.limit)
+  logging.info('Reading the fasta/q to map read names to barcodes..')
+  names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
 
-  logging.info('Reading barcode sequences from families file..')
-  votes, barcodes = count_barcodes(args.families, args.limit)
+  logging.info('Reading the SAM to build the graph of barcode relationships..')
+  graph = read_alignments(args.sam, names_to_barcodes, args.pos, args.mapq, args.dist, args.limit)
 
-  #TODO: Instead of going through all the data again, instead at this point we could stream through
-  #      the lines in the families file, using the "member_to_group" map to look up each barcode in
-  #      "groups" and determine the correction. At that point we could compute all the corrections
-  #      for the group for later (essentially compute the "corrections" table on the fly).
-  logging.info('Building corrections table from collected data..')
-  corrections = make_correction_table(groups, votes, barcodes)
+  logging.info('Reading the families.tsv to get the counts of each family..')
+  family_counts = get_family_counts(args.families, args.limit)
 
-  logging.info('Printing corrected output..')
+  if args.structures:
+    logging.info('Counting the unique barcode networks..')
+    structures = count_structures(graph, family_counts)
+    print_structures(structures, args.struct_human)
+    if args.visualize != 0:
+      logging.info('Generating a visualization of barcode networks..')
+      visualize([s['graph'] for s in structures], args.visualize, args.viz_format)
+
+  logging.info('Building the correction table from the graph..')
+  corrections = make_correction_table(graph, family_counts, args.choose_by)
+
+  logging.info('Reading the families.tsv again to print corrected output..')
   families = open_as_text_or_gzip(args.families.name)
-  print_corrected_output(families, corrections, barcodes, args.add_column, args.limit)
+  print_corrected_output(families, corrections, args.prepend, args.tag_len, args.limit, args.output)
+
+  max_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024
+  logging.info('Max memory usage: {:0.2f}MB'.format(max_mem))
 
 
-def read_alignment(sam, pos_thres, mapq_thres, dist_thres, limit=None):
-  # Group reads (barcodes) into sets of reads linked by alignments to each other.
-  # Each group of reads is a dict mapping read names to read sequences. "groups" is a list of these
-  # dicts.
-  groups = []
-  # "member_to_group" is a dict mapping read names to their group's index in "groups".
-  member_to_group = {}
+def detect_format(reads_file, max_lines=7):
+  """Detect whether a file is a fastq or a fasta, based on its content."""
+  fasta_votes = 0
+  fastq_votes = 0
   line_num = 0
-  for read_name, ref_name in parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
+  for line in reads_file:
     line_num += 1
-    if limit is not None and line_num > limit:
+    if line_num % 4 == 1:
+      if line.startswith('@'):
+        fastq_votes += 1
+      elif line.startswith('>'):
+        fasta_votes += 1
+    elif line_num % 4 == 3:
+      if line.startswith('+'):
+        fastq_votes += 1
+      elif line.startswith('>'):
+        fasta_votes += 1
+    if line_num >= max_lines:
       break
-    # It's a good alignment. Add it to a group.
-    group_i_ref = member_to_group.get(ref_name)
-    group_i_read = member_to_group.get(read_name)
-    if group_i_ref is None:
-      group_i = group_i_read
-      logging.debug('\tgroup_i_ref  is None, using {}.'.format(group_i_read))
-    elif group_i_read is None:
-      group_i = group_i_ref
-      logging.debug('\tgroup_i_read is None, using {}.'.format(group_i_ref))
-    elif group_i_ref == group_i_read:
-      group_i = group_i_ref
-      logging.debug('\tgroup_i_ref == group_i_read ({}).'.format(group_i_ref))
-    else:
-      # Both the read and ref are already in a group, but they're different groups. We need to join
-      # them.
-      logging.debug('\tgroup_i_ref  is {}, group_i_read is {}.'.format(group_i_ref, group_i_read))
-      logging.debug('\tJoining groups {} and {}.'.format(group_i_ref, group_i_read))
-      join_groups(groups, member_to_group, ref_name, read_name)
-      group_i = member_to_group[ref_name]
-    if group_i is None:
-      # No group exists yet. Create one and add it.
-      new_group = set((ref_name, read_name))
-      groups.append(new_group)
-      group_i = len(groups) - 1
-      member_to_group[ref_name] = group_i
-      member_to_group[read_name] = group_i
-      logging.debug('\tAdding new group ({}): {} and {}.'.format(group_i, ref_name, read_name))
-    else:
-      # Add these reads to the group.
-      logging.debug('\tAdding {} and {} to group {}.'.format(ref_name, read_name, group_i))
-      group = groups[group_i]
-      group.add(ref_name)
-      group.add(read_name)
-      member_to_group[ref_name] = group_i
-      member_to_group[read_name] = group_i
-    # logging.getLogger().setLevel(logging.ERROR)
-  return groups
+  reads_file.seek(0)
+  if fasta_votes > fastq_votes:
+    return 'fasta'
+  elif fastq_votes > fasta_votes:
+    return 'fastq'
+  else:
+    return None
 
 
-def parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
-  """Parse the SAM file and yield reads that pass the filters.
-  Returns (read_name, ref_name)."""
+def read_fastaq(reads_file):
+  filename = reads_file.name
+  if filename.endswith('.fa') or filename.endswith('.fasta'):
+    format = 'fasta'
+  elif filename.endswith('.fq') or filename.endswith('.fastq'):
+    format = 'fastq'
+  else:
+    format = detect_format(reads_file)
+  if format == 'fasta':
+    return read_fasta(reads_file)
+  elif format == 'fastq':
+    return read_fastq(reads_file)
+
+
+def read_fasta(reads_file):
+  """Read a FASTA file, yielding read names and sequences.
+  NOTE: This assumes sequences are only one line!"""
   line_num = 0
-  for line in sam:
+  for line_raw in reads_file:
+    line = line_raw.rstrip('\r\n')
+    line_num += 1
+    if line_num % 2 == 1:
+      assert line.startswith('>'), line
+      read_name = line[1:]
+    elif line_num % 2 == 0:
+      read_seq = line
+      yield read_name, read_seq
+
+
+def read_fastq(reads_file):
+  """Read a FASTQ file, yielding read names and sequences.
+  NOTE: This assumes sequences are only one line!"""
+  line_num = 0
+  for line in reads_file:
+    line_num += 1
+    if line_num % 4 == 1:
+      assert line.startswith('@'), line
+      read_name = line[1:].rstrip('\r\n')
+    elif line_num % 4 == 2:
+      read_seq = line.rstrip('\r\n')
+      yield read_name, read_seq
+
+
+def map_names_to_barcodes(reads_file, limit=None):
+  """Map barcode names to their sequences."""
+  names_to_barcodes = {}
+  read_num = 0
+  for read_name, read_seq in read_fastaq(reads_file):
+    read_num += 1
+    if limit is not None and read_num > limit:
+      break
+    try:
+      name = int(read_name)
+    except ValueError:
+      logging.critical('non-int read name "{}"'.format(name))
+      raise
+    names_to_barcodes[name] = read_seq
+  reads_file.close()
+  return names_to_barcodes
+
+
+def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
+  """Parse the SAM file and yield reads that pass the filters.
+  Returns (qname, rname)."""
+  line_num = 0
+  for line in sam_file:
     line_num += 1
     if line.startswith('@'):
       logging.debug('Header line ({})'.format(line_num))
@@ -135,15 +199,15 @@ def parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
     fields = line.split('\t')
     logging.debug('read {} -> ref {} (read seq {}):'.format(fields[2], fields[0], fields[9]))
     try:
-      read_name = int(fields[0])
-      ref_name = int(fields[2])
+      qname = int(fields[0])
+      rname = int(fields[2])
     except ValueError:
       if fields[2] == '*':
         logging.debug('\tRead unmapped (reference == "*")')
         continue
       else:
         logging.error('Non-integer read name(s) on line {}: "{}", "{}".'
-                      .format(line_num, read_name, ref_name))
+                      .format(line_num, qname, rname))
         raise
     # Apply alignment quality filters.
     try:
@@ -176,136 +240,282 @@ def parse_alignment(sam, pos_thres, mapq_thres, dist_thres):
     if nm > dist_thres:
       logging.debug('\tAlignment failed NM distance filter: {} > {}'.format(nm, dist_thres))
       continue
-    yield read_name, ref_name
-  sam.close()
+    yield qname, rname
+  sam_file.close()
 
 
-def join_groups(groups, member_to_group, ref_name, read_name):
-  group_i_ref = member_to_group[ref_name]
-  group_i_read = member_to_group[read_name]
-  logging.debug('\t\tmember_to_group[{}] == {}'.format(ref_name, group_i_ref))
-  logging.debug('\t\tmember_to_group[{}] == {}'.format(read_name, group_i_read))
-  group_ref = groups[group_i_ref]
-  group_read = groups[group_i_read]
-  # Get a union of all elements in both groups.
-  group_union = group_ref.union(group_read)
-  # Put the new, union group back in place of the ref group, and make that the canonical group.
-  groups[group_i_ref] = group_union
-  groups[group_i_read] = None
-  for name in group_union:
-    member_to_group[name] = group_i_ref
-
-
-def count_barcodes(families, limit=None):
-  """Tally how many times each barcode appears in the raw data.
-  Returns two lists: "votes" and "barcodes". In both, each element corresponds to a different
-  barcode, in the order it appears in families. But the first element is None, to correspond with
-  the 1-based read names in the alignment. So, you should be able to look up info on each barcode
-  by taking its read name in the alignment and using it as an index into these lists.
-  Elements in "votes" are integers representing how many times each barcode appears.
-  Elements in "barcodes" are the barcode strings themselves."""
-  votes = []
-  barcodes = []
-  vote = None
-  last_barcode = None
+def read_alignments(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
+  """Read the alignments from the SAM file.
+  Returns a dict mapping each reference sequence (RNAME) to sets of sequences (QNAMEs) that align to
+  it."""
+  graph = networkx.Graph()
+  # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
   line_num = 0
-  for line in families:
+  for qname, rname in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
+    line_num += 1
+    if limit is not None and line_num > limit:
+      break
+    # Skip self-alignments.
+    if rname == qname:
+      continue
+    rseq = names_to_barcodes[rname]
+    qseq = names_to_barcodes[qname]
+    graph.add_node(rseq)
+    graph.add_node(qseq)
+    graph.add_edge(rseq, qseq)
+  return graph
+
+
+def get_family_counts(families_file, limit=None):
+  """For each family (barcode), count how many read pairs exist for each strand (order)."""
+  family_counts = {}
+  last_barcode = None
+  this_family_counts = None
+  line_num = 0
+  for line in families_file:
     line_num += 1
     if limit is not None and line_num > limit:
       break
     fields = line.rstrip('\r\n').split('\t')
     barcode = fields[0]
+    order = fields[1]
     if barcode != last_barcode:
-      votes.append(vote)
-      barcodes.append(last_barcode)
-      vote = 0
+      if this_family_counts:
+        this_family_counts['all'] = this_family_counts['ab'] + this_family_counts['ba']
+      family_counts[last_barcode] = this_family_counts
+      this_family_counts = {'ab':0, 'ba':0}
       last_barcode = barcode
-    vote += 1
-  votes.append(vote)
-  barcodes.append(last_barcode)
-  return votes, barcodes
+    this_family_counts[order] += 1
+  this_family_counts['all'] = this_family_counts['ab'] + this_family_counts['ba']
+  family_counts[last_barcode] = this_family_counts
+  families_file.close()
+  return family_counts
 
 
-def make_correction_table(groups, votes, barcodes):
-  """Take all the gathered data and create a mapping of raw barcode sequences to corrected barcodes.
-  """
+def make_correction_table(meta_graph, family_counts, choose_by='reads'):
+  """Make a table mapping original barcode sequences to correct barcodes.
+  Assumes the most connected node in the graph as the correct barcode."""
   corrections = {}
-  for i, group in enumerate(groups):
-    # if i == 14835:
-    #   logging.getLogger().setLevel(logging.DEBUG)
-    if group is None:
-      logging.debug('{}:\tNone'.format(i))
-      continue
-    logging.debug('{}:\t{}'.format(i, ', '.join(map(str, group))))
-    best_read = choose_read(group, votes)
-    corrected_barcode = barcodes[best_read]
-    logging.debug('\tChose read number {} ({})'.format(best_read, corrected_barcode))
-    for read_name in group:
-      raw_barcode = barcodes[read_name]
-      logging.debug('\tMapping {} -> {} ({} -> {})'
-                    .format(read_name, best_read, raw_barcode, corrected_barcode))
-      corrections[raw_barcode] = corrected_barcode
-    # logging.getLogger().setLevel(logging.ERROR)
+  for graph in networkx.connected_component_subgraphs(meta_graph):
+    if choose_by == 'reads':
+      def key(bar):
+        return family_counts[bar]['all']
+    elif choose_by == 'connectivity':
+      degrees = graph.degree()
+      def key(bar):
+        return degrees[bar]
+    barcodes = sorted(graph.nodes(), key=key, reverse=True)
+    correct = barcodes[0]
+    for barcode in barcodes:
+      if barcode != correct:
+        logging.debug('Correcting {} ->\n           {}\n'.format(barcode, correct))
+        corrections[barcode] = correct
   return corrections
 
 
-def choose_read(group, votes):
-  max_votes = -1
-  best_read = None
-  for read_name in group:
-    if votes[read_name] > max_votes:
-      max_votes = votes[read_name]
-      best_read = read_name
-  return best_read
-
-
-def print_corrected_output(families, corrections, barcodes, add_column=False, tag_len=None,
-                           limit=None):
+def print_corrected_output(families_file, corrections, prepend=False, tag_len=None,
+                           limit=None, output=True):
   # Determine barcode tag length if not given.
   if tag_len is None:
-    tag_len = len(barcodes[1])//2
+    tag_len = len(corrections.keys()[0])//2
   line_num = 0
   barcode_num = 0
   barcode_last = None
-  for line in families:
+  corrected = {'reads':0, 'barcodes':0}
+  reads = [0, 0]
+  corrections_in_this_family = 0
+  for line in families_file:
     line_num += 1
     if limit is not None and line_num > limit:
       break
     fields = line.rstrip('\r\n').split('\t')
     raw_barcode = fields[0]
-    raw_order = fields[1]
+    order = fields[1]
     if raw_barcode != barcode_last:
+      # We just started a new family.
       barcode_num += 1
+      family_info = '{}\t{}\t{}'.format(barcode_last, reads[0], reads[1])
+      if corrections_in_this_family:
+        corrected['reads'] += corrections_in_this_family
+        corrected['barcodes'] += 1
+        family_info += '\tCORRECTED!'
+      else:
+        family_info += '\tuncorrected'
+      logging.log(VERBOSE, family_info)
+      reads = [0, 0]
+      corrections_in_this_family = 0
       barcode_last = raw_barcode
-    try:
-      corrected_barcode_num = corrections[barcode_num]
-    except KeyError:
-      logging.debug('Barcode number {} not in corrections table. Families file line {}, barcode: '
-                    '{}'.format(barcode_num, line_num, barcodes[barcode_num]))
-      corrected_barcode_num = barcode_num
-    corrected_barcode = barcodes[corrected_barcode_num]
-    ordered_barcode, corrected_order = order_barcode(corrected_barcode, raw_order, tag_len)
-    fields[1] = corrected_order
-    if add_column:
-      # Insert the corrected barcode between fields 0 and 1 (the original barcode and the order).
-      fields[1:1] = [ordered_barcode]
+    if order == 'ab':
+      reads[0] += 1
+    elif order == 'ba':
+      reads[1] += 1
+    if raw_barcode in corrections:
+      correct_barcode = corrections[raw_barcode]
+      corrections_in_this_family += 1
     else:
-      # Replace field 0 (original barcode) with the corrected barcode.
-      fields[0] = ordered_barcode
-    print(*fields, sep='\t')
+      correct_barcode = raw_barcode
+    if prepend:
+      fields.insert(0, correct_barcode)
+    else:
+      fields[0] = correct_barcode
+    if output:
+      print(*fields, sep='\t')
+  families_file.close()
+  if corrections_in_this_family:
+    corrected['reads'] += corrections_in_this_family
+    corrected['barcodes'] += 1
+  logging.info('Corrected {barcodes} barcodes on {reads} read pairs.'.format(**corrected))
 
 
-def order_barcode(barcode, raw_order, tag_len=12):
-  if raw_order == 'ab':
-    alpha = barcode[:tag_len]
-    beta = barcode[tag_len:]
-  if raw_order == 'ba':
-    beta = barcode[:tag_len]
-    alpha = barcode[tag_len:]
-  if alpha < beta:
-    return alpha + beta, 'ab'
+def count_structures(meta_graph, family_counts):
+  """Count the number of unique (isomorphic) subgraphs in the main graph."""
+  structures = []
+  for graph in networkx.connected_component_subgraphs(meta_graph):
+    match = False
+    for structure in structures:
+      archetype = structure['graph']
+      if networkx.is_isomorphic(graph, archetype):
+        match = True
+        structure['count'] += 1
+        structure['central'] += int(is_centralized(graph, family_counts))
+        break
+    if not match:
+      size = len(graph)
+      central = is_centralized(graph, family_counts)
+      structures.append({'graph':graph, 'size':size, 'count':1, 'central':int(central)})
+  return structures
+
+
+def is_centralized(graph, family_counts):
+  """Checks if the graph is centralized in terms of where the reads are located.
+  In a centralized graph, the node with the highest degree is the only one which (may) have more
+  than one read pair associated with that barcode.
+  This returns True if that's the case, False otherwise."""
+  if len(graph) == 2:
+    # Special-case graphs with 2 nodes, since the other algorithm doesn't work for them.
+    # - When both nodes have a degree of 1, sorting by degree doesn't work and can result in the
+    #   barcode with more read pairs coming second.
+    barcode1, barcode2 = graph.nodes()
+    counts1 = family_counts[barcode1]
+    counts2 = family_counts[barcode2]
+    total1 = counts1['all']
+    total2 = counts2['all']
+    logging.debug('{}: {:3d} ({}/{})\n{}: {:3d} ({}/{})\n'
+                  .format(barcode1, total1, counts1['ab'], counts1['ba'],
+                          barcode2, total2, counts2['ab'], counts2['ba']))
+    if (total1 >= 1 and total2 == 1) or (total1 == 1 and total2 >= 1):
+      return True
+    else:
+      return False
   else:
-    return beta + alpha, 'ba'
+    degrees = graph.degree()
+    first = True
+    for barcode in sorted(graph.nodes(), key=lambda barcode: degrees[barcode], reverse=True):
+      if not first:
+        counts = family_counts[barcode]
+        # How many read pairs are associated with this barcode (how many times did we see this barcode)?
+        try:
+          if counts['all'] > 1:
+            return False
+        except TypeError:
+          logging.critical('barcode: {}, counts: {}'.format(barcode, counts))
+          raise
+      first = False
+    return True
+
+
+def print_structures(structures, human=True):
+  # Define a cmp function to sort the list of structures in ascending order of size, but then
+  # descending order of count.
+  def cmp_fxn(structure1, structure2):
+    if structure1['size'] == structure2['size']:
+      return structure2['count'] - structure1['count']
+    else:
+      return structure1['size'] - structure2['size']
+  width = None
+  last_size = None
+  for structure in sorted(structures, cmp=cmp_fxn):
+    size = structure['size']
+    graph = structure['graph']
+    if size == last_size:
+      i += 1
+    else:
+      i = 0
+    if width is None:
+      width = str(len(str(structure['count'])))
+    letters = num_to_letters(i)
+    # node_data = get_node_data(graph, graph.degree(), family_counts)
+    # node_data_str = ['{degree}:{count1}/{count2}'.format(**datum) for datum in node_data]
+    degrees = sorted(graph.degree().values(), reverse=True)
+    if human:
+      degrees_str = ' '.join(map(str, degrees))
+    else:
+      degrees_str = ','.join(map(str, degrees))
+    if human:
+      format_str = '{:2d}{:<3s} {count:<'+width+'d} {central:<'+width+'d} {}'
+      print(format_str.format(size, letters+':', degrees_str, **structure))
+    else:
+      print(size, letters, structure['count'], structure['central'], degrees_str, sep='\t')
+    last_size = size
+
+
+def num_to_letters(i):
+  """Translate numbers to letters, e.g. 1 -> A, 10 -> K, 100 -> CW
+  Note: Can't handle numbers over 701."""
+  if i < 26:
+    return chr(65+i)
+  else:
+    x = (i // 26) - 1
+    y = i % 26
+    return chr(65+x)+chr(65+y)
+
+
+def get_node_data(graph, degrees, family_counts):
+  node_data = []
+  for barcode, degree in degrees.items():
+    counts = family_counts[barcode]
+    node_datum = {'degree':degree, 'count1':counts['ab'], 'count2':counts['ba']}
+    node_data.append(node_datum)
+  return sorted(node_data, key=lambda datum: datum['degree'], reverse=True)
+
+
+def visualize(graphs, viz_path, args_viz_format):
+    import matplotlib
+    from networkx.drawing.nx_agraph import graphviz_layout
+    from networkx.drawing.nx_pydot import write_dot
+    meta_graph = networkx.Graph()
+    for graph in graphs:
+      add_graph(meta_graph, graph)
+    pos = graphviz_layout(meta_graph)
+    networkx.draw(meta_graph, pos)
+    if viz_path:
+      ext = os.path.splitext(viz_path)[1]
+      if ext == '.dot':
+        viz_format = 'graphviz'
+      elif ext == '.png':
+        viz_format = 'png'
+    else:
+      viz_format = args_viz_format
+    if viz_format == 'graphviz':
+      assert viz_path is not None, 'Must provide a filename to --visualize if using --viz-format "graphviz".'
+      base_path = os.path.splitext(viz_path)
+      write_dot(meta_graph, base_path+'.dot')
+      run_command('dot', '-T', 'png', '-o', base_path+'.png', base_path+'.dot')
+      logging.info('Wrote image of graph to '+base_path+'.dot')
+    elif viz_format == 'png':
+      if viz_path is None:
+        matplotlib.pyplot.show()
+      else:
+        matplotlib.pyplot.savefig(viz_path)
+
+
+def add_graph(graph, subgraph):
+  # I'm sure there's a function in the library for this, but just cause I need it quick..
+  for node in subgraph.nodes():
+    graph.add_node(node)
+  for edge in subgraph.edges():
+    graph.add_edge(*edge)
+  return graph
 
 
 def open_as_text_or_gzip(path):
@@ -340,6 +550,16 @@ def detect_non_ascii(bytes, max_test=100):
     if i >= max_test:
       return False
   return False
+
+
+def run_command(*command):
+  try:
+    exit_status = subprocess.call(command)
+  except subprocess.CalledProcessError as cpe:
+    exit_status = cpe.returncode
+  except OSError:
+    exit_status = None
+  return exit_status
 
 
 def tone_down_logger():
