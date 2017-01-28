@@ -460,14 +460,15 @@ def print_structures(structures, human=True):
 
 
 def num_to_letters(i):
-  """Translate numbers to letters, e.g. 1 -> A, 10 -> K, 100 -> CW
-  Note: Can't handle numbers over 701."""
-  if i < 26:
-    return chr(65+i)
-  else:
-    x = (i // 26) - 1
-    y = i % 26
-    return chr(65+x)+chr(65+y)
+  """Translate numbers to letters, e.g. 1 -> A, 10 -> J, 100 -> CV"""
+  letters = ''
+  while i > 0:
+    n = (i-1) % 26
+    i = i // 26
+    if n == 25:
+      i -= 1
+    letters = chr(65+n) + letters
+  return letters
 
 
 def get_node_data(graph, degrees, family_counts):
