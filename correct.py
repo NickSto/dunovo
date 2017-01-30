@@ -444,8 +444,6 @@ def print_structures(structures, human=True):
     if width is None:
       width = str(len(str(structure['count'])))
     letters = num_to_letters(i)
-    # node_data = get_node_data(graph, graph.degree(), family_counts)
-    # node_data_str = ['{degree}:{count1}/{count2}'.format(**datum) for datum in node_data]
     degrees = sorted(graph.degree().values(), reverse=True)
     if human:
       degrees_str = ' '.join(map(str, degrees))
@@ -471,19 +469,9 @@ def num_to_letters(i):
   return letters
 
 
-def get_node_data(graph, degrees, family_counts):
-  node_data = []
-  for barcode, degree in degrees.items():
-    counts = family_counts[barcode]
-    node_datum = {'degree':degree, 'count1':counts['ab'], 'count2':counts['ba']}
-    node_data.append(node_datum)
-  return sorted(node_data, key=lambda datum: datum['degree'], reverse=True)
-
-
 def visualize(graphs, viz_path, args_viz_format):
     import matplotlib
     from networkx.drawing.nx_agraph import graphviz_layout
-    from networkx.drawing.nx_pydot import write_dot
     meta_graph = networkx.Graph()
     for graph in graphs:
       add_graph(meta_graph, graph)
@@ -498,6 +486,7 @@ def visualize(graphs, viz_path, args_viz_format):
     else:
       viz_format = args_viz_format
     if viz_format == 'graphviz':
+      from networkx.drawing.nx_pydot import write_dot
       assert viz_path is not None, 'Must provide a filename to --visualize if using --viz-format "graphviz".'
       base_path = os.path.splitext(viz_path)
       write_dot(meta_graph, base_path+'.dot')
