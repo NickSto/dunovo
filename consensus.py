@@ -1,11 +1,38 @@
+#!/usr/bin/env python
 import os
+import sys
 import ctypes
+import argparse
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 consensus = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libconsensus.so'))
 consensus.get_consensus.restype = ctypes.c_char_p
 consensus.get_consensus_duplex.restype = ctypes.c_char_p
 consensus.build_consensus_duplex_simple.restype = ctypes.c_char_p
+
+ARG_DEFAULTS = {'alignment':sys.stdin}
+DESCRIPTION = "Get the consensus of a set of aligned sequences."
+
+
+def make_argparser():
+  parser = argparse.ArgumentParser(description=DESCRIPTION)
+  parser.set_defaults(**ARG_DEFAULTS)
+  parser.add_argument('alignment', type=argparse.FileType('r'),
+    help='The aligned sequences, in FASTA format (but no multi-line sequences).')
+  return parser
+
+
+def main(argv):
+  parser = make_argparser()
+  args = parser.parse_args(argv[1:])
+  sequences = []
+  line_num = 0
+  for line in args.alignment:
+    line_num += 1
+    if line_num % 2 == 0:
+      sequences.append(line.rstrip('\r\n'))
+  cons = get_consensus(sequences)
+  print(cons)
 
 
 # N.B.: The quality scores must be aligned with their accompanying sequences.
@@ -84,3 +111,7 @@ def build_consensus_duplex_simple(cons1, cons2, gapped=False):
   else:
     gapped_c = 0
   return consensus.build_consensus_duplex_simple(cons1_c, cons2_c, gapped_c)
+
+
+if __name__ == '__main__':
+  sys.exit(main(sys.argv))
