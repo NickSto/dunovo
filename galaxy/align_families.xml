@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
-<tool id="align_families" name="Du Novo: Align families" version="0.5">
+<tool id="align_families" name="Du Novo: Align families" version="0.6">
   <description>of duplex sequencing reads</description>
   <requirements>
     <requirement type="package" version="7.221">mafft</requirement>
-    <requirement type="package" version="0.5">duplex</requirement>
+    <requirement type="package" version="0.6">duplex</requirement>
     <requirement type="set_environment">DUPLEX_DIR</requirement>
     <!-- TODO: require Python 2.7 -->
   </requirements>
