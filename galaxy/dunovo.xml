@@ -7,14 +7,14 @@
     <!-- TODO: require Python 2.7 -->
   </requirements>
   <command detect_errors="exit_code"><![CDATA[
-    python \$DUPLEX_DIR/dunovo.py -r $min_reads -q $qual_thres -F $qual_format $input
+    python "\$DUPLEX_DIR/dunovo.py" -r $min_reads -q $qual_thres -F $qual_format '$input'
     #if $keep_sscs:
       --sscs-file sscs.fa
     #end if
     > duplex.fa
-    && python \$DUPLEX_DIR/utils/outconv.py duplex.fa -1 $dcs1 -2 $dcs2
+    && python "\$DUPLEX_DIR/utils/outconv.py" duplex.fa -1 '$dcs1' -2 '$dcs2'
     #if $keep_sscs:
-      && python \$DUPLEX_DIR/utils/outconv.py sscs.fa -1 $sscs1 -2 $sscs2
+      && python "\$DUPLEX_DIR/utils/outconv.py" sscs.fa -1 '$sscs1' -2 '$sscs2'
     #end if
   ]]>
   </command>

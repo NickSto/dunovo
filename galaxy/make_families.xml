@@ -6,11 +6,11 @@
     <requirement type="set_environment">DUPLEX_DIR</requirement>
   </requirements>
   <!-- TODO: Add dependency on coreutils to get paste? -->
-  <command>paste $fastq1 $fastq2
+  <command>paste '$fastq1' '$fastq2'
     | paste - - - -
-    | awk -f \$DUPLEX_DIR/make-barcodes.awk -v TAG_LEN=$taglen -v INVARIANT=$invariant
+    | awk -f "\$DUPLEX_DIR/make-barcodes.awk" -v TAG_LEN=$taglen -v INVARIANT=$invariant
     | sort
-    &gt; $output
+    &gt; '$output'
   </command>
   <inputs>
     <param name="fastq1" type="data" format="fastq" label="Sequencing reads, mate 1"/>
