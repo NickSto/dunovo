@@ -4,6 +4,7 @@
 *.sublime-workspace
 *.fa
 *.tsv
+.venv
 test.*
 misc
 align
