@@ -5,23 +5,28 @@ if [ x$BASH = x ] || [ ! $BASH_VERSINFO ] || [ $BASH_VERSINFO -lt 4 ]; then
 fi
 set -ue
 
-Usage="Usage: \$ $(basename $0) families_file ref_dir out_file
+Usage="Usage: \$ $(basename $0) [-R] families_file ref_dir out_file
 families_file: The families.tsv produced by make-barcodes.awk and sorted.
 ref_dir:  The directory to put the reference file (\"barcodes.fa\") and its index
           files in.
-out_file: The path to put the output alignment BAM file at."
+out_file: The path to put the output alignment BAM file at.
+-R: Don't include reversed barcodes (alpha+beta -> beta+alpha) in the alignment target."
 
 function main {
 
   # Read in arguments and check them.
 
-  if [[ $# -lt 1 ]] || [[ $1 == '-h' ]]; then
-    fail "$Usage"
-  fi
-
-  families=$1
-  refdir=$2
-  outfile=$3
+  reverse=true
+  while getopts ":rh" opt; do
+  case "$opt" in
+      r) reverse='';;
+      h) fail "$USAGE";;
+    esac
+  done
+  # Get positional arguments.
+  families=${@:$OPTIND:1}
+  refdir=${@:$OPTIND+1:1}
+  outfile=${@:$OPTIND+2:1}
 
   if ! [[ -f $families ]]; then
     fail "Error: families_file \"$families\" not found."
@@ -48,24 +53,48 @@ function main {
 families: $families
 refdir:   $refdir
 outfile:  $outfile
-outbase:  $outbase"
+outbase:  $outbase" >&2
 
-  # Prepare barcode files for alignment.
+  # Create FASTA with barcodes as "reads" for alignment.
+  awk '$1 != last {
+    count++
+    print ">" count
+    print $1
+  }
+  {
+    last = $1
+  }' $families > $refdir/barcodes.fa
 
-  awk '
-    $1 != last {
-      count++
-      print ">" count
-      print $1
-    }
-    {
-      last = $1
-    }' $families > $refdir/barcodes.fa
+  # Create "reference" to align the barcodes to.
+  if [[ $reverse ]]; then
+    # If we're including reversed barcodes, create a new FASTA which includes reversed barcodes
+    # as well as their forward versions.
+    awk '
+      $1 != last {
+        count++
+        bar = $1
+        print ">" count
+        print bar
+        print ">" count ":rev"
+        print swap_halves(bar)
+      }
+      {
+        last = $1
+      }
+      function swap_halves(str) {
+        half = length(str)/2
+        alpha = substr(str, 1, half)
+        beta = substr(str, half+1)
+        return beta alpha
+      }' $families > $refdir/barcodes-ref.fa
+  else
+    # If we're not including reversed barcodes, the original FASTA is all we need. Just link to it.
+    ln -s $refdir/barcodes.fa $refdir/barcodes-ref.fa
+  fi
 
   # Perform alignment.
-
-  bowtie2-build --packed $refdir/barcodes.fa $refdir/barcodes >/dev/null
-  bowtie2 -a -x $refdir/barcodes -f -U $refdir/barcodes.fa -S $outbase.sam
+  bowtie2-build --packed $refdir/barcodes-ref.fa $refdir/barcodes-ref >/dev/null
+  bowtie2 -a -x $refdir/barcodes-ref -f -U $refdir/barcodes.fa -S $outbase.sam
   samtools view -Sb $outbase.sam > $outbase.tmp.bam
   samtools sort $outbase.tmp.bam $outbase
   if [[ -s $outfile ]]; then

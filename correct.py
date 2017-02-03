@@ -9,9 +9,10 @@ import argparse
 import resource
 import subprocess
 import networkx
+import swalign
 
 VERBOSE = (logging.DEBUG+logging.INFO)//2
-ARG_DEFAULTS = {'sam':sys.stdin, 'qual':20, 'pos':2, 'dist':1, 'choose_by':'reads', 'output':True,
+ARG_DEFAULTS = {'sam':sys.stdin, 'mapq':20, 'pos':2, 'dist':1, 'choose_by':'count', 'output':True,
                 'visualize':0, 'viz_format':'png', 'log':sys.stderr, 'volume':logging.WARNING}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Correct barcodes using an alignment of all barcodes to themselves. Reads the
@@ -43,10 +44,10 @@ def main(argv):
   parser.add_argument('-p', '--pos', type=int,
     help='POS tolerance. Alignments will be ignored if abs(POS - 1) is greater than this value. '
          'Set to greater than the barcode length for no threshold. Default: %(default)s')
-  parser.add_argument('-t', '--tag-len', type=int,
-    help='Length of each half of the barcode. If not given, it will be determined from the first '
-         'barcode in the families file.')
-  parser.add_argument('-c', '--choose-by', choices=('reads', 'connectivity'))
+  parser.add_argument('-c', '--choose-by', choices=('count', 'connect'),
+    help='Choose the "correct" barcode in a network of related barcodes by either the count of how '
+         'many times the barcode was observed ("freq") or how connected the barcode is to the '
+         'others in the network ("connect").')
   parser.add_argument('--limit', type=int,
     help='Limit the number of lines that will be read from each input file, for testing purposes.')
   parser.add_argument('-S', '--structures', action='store_true',
@@ -74,7 +75,8 @@ def main(argv):
   names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
 
   logging.info('Reading the SAM to build the graph of barcode relationships..')
-  graph = read_alignments(args.sam, names_to_barcodes, args.pos, args.mapq, args.dist, args.limit)
+  graph, reversed_barcodes = read_alignments(args.sam, names_to_barcodes, args.pos, args.mapq,
+                                             args.dist, args.limit)
 
   logging.info('Reading the families.tsv to get the counts of each family..')
   family_counts = get_family_counts(args.families, args.limit)
@@ -92,7 +94,8 @@ def main(argv):
 
   logging.info('Reading the families.tsv again to print corrected output..')
   families = open_as_text_or_gzip(args.families.name)
-  print_corrected_output(families, corrections, args.prepend, args.tag_len, args.limit, args.output)
+  print_corrected_output(families, corrections, reversed_barcodes, args.prepend, args.limit,
+                         args.output)
 
   max_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024
   logging.info('Max memory usage: {:0.2f}MB'.format(max_mem))
@@ -189,7 +192,7 @@ def map_names_to_barcodes(reads_file, limit=None):
 
 def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
   """Parse the SAM file and yield reads that pass the filters.
-  Returns (qname, rname)."""
+  Returns (qname, rname, reversed)."""
   line_num = 0
   for line in sam_file:
     line_num += 1
@@ -198,9 +201,17 @@ def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
       continue
     fields = line.split('\t')
     logging.debug('read {} -> ref {} (read seq {}):'.format(fields[2], fields[0], fields[9]))
+    qname_str = fields[0]
+    rname_str = fields[2]
+    rname_fields = rname_str.split(':')
+    if len(rname_fields) == 2 and rname_fields[1] == 'rev':
+      reversed = True
+      rname_str = rname_fields[0]
+    else:
+      reversed = False
     try:
-      qname = int(fields[0])
-      rname = int(fields[2])
+      qname = int(qname_str)
+      rname = int(rname_str)
     except ValueError:
       if fields[2] == '*':
         logging.debug('\tRead unmapped (reference == "*")')
@@ -240,18 +251,25 @@ def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     if nm > dist_thres:
       logging.debug('\tAlignment failed NM distance filter: {} > {}'.format(nm, dist_thres))
       continue
-    yield qname, rname
+    yield qname, rname, reversed
   sam_file.close()
 
 
 def read_alignments(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
   """Read the alignments from the SAM file.
+  Returns (graph, reversed_barcodes):
+  graph: A networkx.Graph() containing a node per barcode (the sequence as a str), and an edge
+    between every pair of barcodes that align to each other (with a threshold-passing alignment).
+  reversed_barcodes: The set() of all barcode sequences that are involved in an alignment where the
+    target is reversed (swapped halves, like alpha+beta -> beta+alpha). Both the query and reference
+    sequence in each alignment are marked here.
   Returns a dict mapping each reference sequence (RNAME) to sets of sequences (QNAMEs) that align to
   it."""
   graph = networkx.Graph()
+  reversed_barcodes = set()
   # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
   line_num = 0
-  for qname, rname in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
+  for qname, rname, reversed in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
     line_num += 1
     if limit is not None and line_num > limit:
       break
@@ -260,10 +278,14 @@ def read_alignments(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thr
       continue
     rseq = names_to_barcodes[rname]
     qseq = names_to_barcodes[qname]
+    # Is this an alignment to a reversed barcode?
+    if reversed:
+      reversed_barcodes.add(rseq)
+      reversed_barcodes.add(qseq)
     graph.add_node(rseq)
     graph.add_node(qseq)
     graph.add_edge(rseq, qseq)
-  return graph
+  return graph, reversed_barcodes
 
 
 def get_family_counts(families_file, limit=None):
@@ -292,15 +314,15 @@ def get_family_counts(families_file, limit=None):
   return family_counts
 
 
-def make_correction_table(meta_graph, family_counts, choose_by='reads'):
+def make_correction_table(meta_graph, family_counts, choose_by='count'):
   """Make a table mapping original barcode sequences to correct barcodes.
   Assumes the most connected node in the graph as the correct barcode."""
   corrections = {}
   for graph in networkx.connected_component_subgraphs(meta_graph):
-    if choose_by == 'reads':
+    if choose_by == 'count':
       def key(bar):
         return family_counts[bar]['all']
-    elif choose_by == 'connectivity':
+    elif choose_by == 'connect':
       degrees = graph.degree()
       def key(bar):
         return degrees[bar]
@@ -313,15 +335,12 @@ def make_correction_table(meta_graph, family_counts, choose_by='reads'):
   return corrections
 
 
-def print_corrected_output(families_file, corrections, prepend=False, tag_len=None,
-                           limit=None, output=True):
-  # Determine barcode tag length if not given.
-  if tag_len is None:
-    tag_len = len(corrections.keys()[0])//2
+def print_corrected_output(families_file, corrections, reversed_barcodes, prepend=False, limit=None,
+                           output=True):
   line_num = 0
   barcode_num = 0
   barcode_last = None
-  corrected = {'reads':0, 'barcodes':0}
+  corrected = {'reads':0, 'barcodes':0, 'reversed':0}
   reads = [0, 0]
   corrections_in_this_family = 0
   for line in families_file:
@@ -352,6 +371,17 @@ def print_corrected_output(families_file, corrections, prepend=False, tag_len=No
     if raw_barcode in corrections:
       correct_barcode = corrections[raw_barcode]
       corrections_in_this_family += 1
+      # Check if the order of the barcode reverses in the correct version.
+      # First, we check in reversed_barcodes whether either barcode was involved in a reversed
+      # alignment, to save time (is_alignment_reversed() does a full smith-waterman alignment).
+      if ((raw_barcode in reversed_barcodes or correct_barcode in reversed_barcodes) and
+          is_alignment_reversed(raw_barcode, correct_barcode)):
+        # If so, then switch the order field.
+        corrected['reversed'] += 1
+        if order == 'ab':
+          fields[1] = 'ba'
+        else:
+          fields[1] = 'ab'
     else:
       correct_barcode = raw_barcode
     if prepend:
@@ -364,7 +394,24 @@ def print_corrected_output(families_file, corrections, prepend=False, tag_len=No
   if corrections_in_this_family:
     corrected['reads'] += corrections_in_this_family
     corrected['barcodes'] += 1
-  logging.info('Corrected {barcodes} barcodes on {reads} read pairs.'.format(**corrected))
+  logging.info('Corrected {barcodes} barcodes on {reads} read pairs, with {reversed} reversed.'
+               .format(**corrected))
+
+
+def is_alignment_reversed(barcode1, barcode2):
+  """Return True if the barcodes are reversed with respect to each other, False otherwise.
+  "reversed" in this case meaning the alpha + beta halves are swapped.
+  Determine by aligning the two to each other, once in their original forms, and once with the
+  second barcode reversed. If the smith-waterman score is higher in the reversed form, return True.
+  """
+  half = len(barcode2)//2
+  barcode2_rev = barcode2[half:] + barcode2[:half]
+  fwd_align = swalign.smith_waterman(barcode1, barcode2)
+  rev_align = swalign.smith_waterman(barcode1, barcode2_rev)
+  if rev_align.score > fwd_align.score:
+    return True
+  else:
+    return False
 
 
 def count_structures(meta_graph, family_counts):
