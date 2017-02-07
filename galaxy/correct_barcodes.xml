@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<tool id="correct_barcodes" name="Du Novo: Correct barcodes" version="0.6">
+  <description>of duplex sequencing reads</description>
+  <requirements>
+    <requirement type="package" version="2.1.0">bowtie2</requirement>
+    <requirement type="package" version="0.1.18">samtools</requirement>
+    <requirement type="package" version="1.9">networkx</requirement>
+    <requirement type="package" version="0.6">duplex</requirement>
+    <requirement type="set_environment">DUPLEX_DIR</requirement>
+    <!-- TODO: require Python 2.7 -->
+  </requirements>
+  <command detect_errors="exit_code">bash "\$DUPLEX_DIR/baralign.sh" '$input' refdir barcodes.bam
+    &amp;&amp; samtools view -f 256 barcodes.bam
+    | python "\$DUPLEX_DIR/correct.py" -d $dist -m $mapq -p $pos '$input' refdir/barcodes.fa
+    | sort &gt; '$output'
+  </command>
+  <inputs>
+    <param name="input" type="data" format="tabular" label="Input reads" help="with barcodes, grouped by family"/>
+    <param name="dist" type="integer" value="1" min="1" label="Maximum edit distance" help="Only use alignments where the barcodes differ by at most these many errors."/>
+    <param name="mapq" type="integer" value="20" min="0" label="Minimum mapping quality" help="Only use alignments whose MAPQ is at least this."/>
+    <param name="pos" type="integer" value="2" min="0" label="Minimum start offset" help="Ignore alignments where the start positions differ by more than this."/>
+  </inputs>
+  <outputs>
+    <data name="output" format="tabular"/>
+  </outputs>
+  <citations>
+    <citation type="bibtex">@article{Stoler2016,
+      author = {Stoler, Nicholas and Arbeithuber, Barbara and Guiblet, Wilfried and Makova, Kateryna D and Nekrutenko, Anton},
+      doi = {10.1186/s13059-016-1039-4},
+      issn = {1474-760X},
+      journal = {Genome biology},
+      number = {1},
+      pages = {180},
+      pmid = {27566673},
+      publisher = {Genome Biology},
+      title = {{Streamlined analysis of duplex sequencing data with Du Novo.}},
+      url = {http://www.ncbi.nlm.nih.gov/pubmed/27566673},
+      volume = {17},
+      year = {2016}
+    }</citation>
+  </citations>
+  <help>
+
+**What it does**
+
+This is for processing duplex sequencing data. This will correct duplex barcodes and create new, larger families. Errors in barcodes normally prevent them from being recognized as the same as the other barcodes in their family. Correcting these errors allows the original, full families to be reconstructed, saving reads which would otherwise be lost. This tool accomplishes this by doing an all vs. all alignment between the barcodes with bowtie2. This identifies ones which are identical except a few, small differences.
+
+-----
+
+**Input**
+
+This expects the output format of the "Make families" tool.
+
+-----
+
+**Output**
+
+The output format is the same as the input format, ready to be consumed by the "Align families" tool.
+
+    </help>
+</tool>
