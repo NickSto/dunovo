@@ -5,7 +5,7 @@
     <requirement type="package" version="2.1.0">bowtie2</requirement>
     <requirement type="package" version="0.1.18">samtools</requirement>
     <requirement type="package" version="1.9">networkx</requirement>
-    <requirement type="package" version="0.6.1">duplex</requirement>
+    <requirement type="package" version="0.6.2">duplex</requirement>
     <!-- TODO: require Python 2.7 -->
   </requirements>
   <command detect_errors="exit_code">correct-barcodes.sh -d $dist -m $mapq -p $pos '$input' &gt; '$output'

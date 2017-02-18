@@ -12,10 +12,10 @@
   <package name="networkx" version="1.9">
     <repository name="package_networkx_1_9" owner="iuc"/>
   </package>
-  <package name="duplex" version="0.6.1">
+  <package name="duplex" version="0.6.2">
     <install version="1.0">
       <actions>
-        <action type="download_by_url">https://github.com/galaxyproject/dunovo/archive/v0.6.1.tar.gz</action>
+        <action type="download_by_url">https://github.com/galaxyproject/dunovo/archive/v0.6.2.tar.gz</action>
         <action type="shell_command">make</action>
         <action type="move_directory_files">
           <source_directory>.</source_directory>
