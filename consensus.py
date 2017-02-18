@@ -1,11 +1,22 @@
 #!/usr/bin/env python
 import os
 import sys
+import errno
 import ctypes
 import argparse
 
+# Locate the library file.
+LIBFILE = 'libconsensus.so'
 script_dir = os.path.dirname(os.path.realpath(__file__))
-consensus = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libconsensus.so'))
+library_path = os.path.join(script_dir, LIBFILE)
+if not os.path.isfile(library_path):
+  library_path = os.path.join(script_dir, '..', 'lib', LIBFILE)
+  if not os.path.isfile(library_path):
+    ioe = IOError('Library file "'+LIBFILE+'" not found.')
+    ioe.errno = errno.ENOENT
+    raise ioe
+
+consensus = ctypes.cdll.LoadLibrary(library_path)
 consensus.get_consensus.restype = ctypes.c_char_p
 consensus.get_consensus_duplex.restype = ctypes.c_char_p
 consensus.build_consensus_duplex_simple.restype = ctypes.c_char_p

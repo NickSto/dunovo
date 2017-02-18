@@ -1,8 +1,19 @@
 import os
+import errno
 import ctypes
 
+# Locate the library file.
+LIBFILE = 'libseqtools.so'
 script_dir = os.path.dirname(os.path.realpath(__file__))
-seqtools = ctypes.cdll.LoadLibrary(os.path.join(script_dir, 'libseqtools.so'))
+library_path = os.path.join(script_dir, LIBFILE)
+if not os.path.isfile(library_path):
+  library_path = os.path.join(script_dir, '..', 'lib', LIBFILE)
+  if not os.path.isfile(library_path):
+    ioe = IOError('Library file "'+LIBFILE+'" not found.')
+    ioe.errno = errno.ENOENT
+    raise ioe
+
+seqtools = ctypes.cdll.LoadLibrary(library_path)
 seqtools.get_revcomp.restype = ctypes.c_char_p
 seqtools.transfer_gaps.restype = ctypes.c_char_p
 
