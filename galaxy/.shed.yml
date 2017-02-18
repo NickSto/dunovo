@@ -1,6 +1,6 @@
 categories: [Sequence Analysis]
 description: "Du Novo: A pipeline for processing duplex sequencing data."
-name: duplex
+name: dunovo
 owner: nick
 homepage_url: https://github.com/galaxyproject/dunovo
 remote_repository_url: https://github.com/galaxyproject/dunovo
