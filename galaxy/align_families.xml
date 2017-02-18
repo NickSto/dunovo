@@ -3,7 +3,7 @@
   <description>of duplex sequencing reads</description>
   <requirements>
     <requirement type="package" version="7.221">mafft</requirement>
-    <requirement type="package" version="0.6">duplex</requirement>
+    <requirement type="package" version="0.6.1">duplex</requirement>
     <!-- TODO: require Python 2.7 -->
   </requirements>
   <command detect_errors="exit_code">align_families.py -p \${GALAXY_SLOTS:-1} '$input' &gt; '$output'
