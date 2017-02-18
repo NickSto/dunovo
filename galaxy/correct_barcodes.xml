@@ -6,13 +6,9 @@
     <requirement type="package" version="0.1.18">samtools</requirement>
     <requirement type="package" version="1.9">networkx</requirement>
     <requirement type="package" version="0.6">duplex</requirement>
-    <requirement type="set_environment">DUPLEX_DIR</requirement>
     <!-- TODO: require Python 2.7 -->
   </requirements>
-  <command detect_errors="exit_code">bash "\$DUPLEX_DIR/baralign.sh" '$input' refdir barcodes.bam
-    &amp;&amp; samtools view -f 256 barcodes.bam
-    | python "\$DUPLEX_DIR/correct.py" -d $dist -m $mapq -p $pos '$input' refdir/barcodes.fa
-    | sort &gt; '$output'
+  <command detect_errors="exit_code">correct-barcodes.sh -d $dist -m $mapq -p $pos '$input' &gt; '$output'
   </command>
   <inputs>
     <param name="input" type="data" format="tabular" label="Input reads" help="with barcodes, grouped by family"/>

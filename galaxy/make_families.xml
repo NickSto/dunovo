@@ -3,14 +3,9 @@
   <description>of duplex sequencing reads</description>
   <requirements>
     <requirement type="package" version="0.6">duplex</requirement>
-    <requirement type="set_environment">DUPLEX_DIR</requirement>
   </requirements>
   <!-- TODO: Add dependency on coreutils to get paste? -->
-  <command>paste '$fastq1' '$fastq2'
-    | paste - - - -
-    | awk -f "\$DUPLEX_DIR/make-barcodes.awk" -v TAG_LEN=$taglen -v INVARIANT=$invariant
-    | sort
-    &gt; '$output'
+  <command detect_errors="exit_code">make-families.sh -v TAG_LEN=$taglen -v INVARIANT=$invariant '$fastq1' '$fastq2' &gt; '$output'
   </command>
   <inputs>
     <param name="fastq1" type="data" format="fastq" label="Sequencing reads, mate 1"/>

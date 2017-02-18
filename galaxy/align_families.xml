@@ -4,10 +4,9 @@
   <requirements>
     <requirement type="package" version="7.221">mafft</requirement>
     <requirement type="package" version="0.6">duplex</requirement>
-    <requirement type="set_environment">DUPLEX_DIR</requirement>
     <!-- TODO: require Python 2.7 -->
   </requirements>
-  <command detect_errors="exit_code">python "\$DUPLEX_DIR/align_families.py" -p \${GALAXY_SLOTS:-1} '$input' &gt; '$output'
+  <command detect_errors="exit_code">align_families.py -p \${GALAXY_SLOTS:-1} '$input' &gt; '$output'
   </command>
   <inputs>
     <param name="input" type="data" format="tabular" label="Input reads" help="with barcodes, grouped by family"/>

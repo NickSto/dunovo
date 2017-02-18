@@ -22,7 +22,6 @@
           <destination_directory>$INSTALL_DIR</destination_directory>
         </action>
         <action type="set_environment">
-          <environment_variable name="DUPLEX_DIR" action="set_to">$INSTALL_DIR</environment_variable>
           <environment_variable name="PATH" action="prepend_to">$INSTALL_DIR</environment_variable>
         </action>
       </actions>

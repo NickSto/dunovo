@@ -3,20 +3,12 @@
   <description>from duplex sequencing alignments</description>
   <requirements>
     <requirement type="package" version="0.6">duplex</requirement>
-    <requirement type="set_environment">DUPLEX_DIR</requirement>
     <!-- TODO: require Python 2.7 -->
   </requirements>
-  <command detect_errors="exit_code"><![CDATA[
-    python "\$DUPLEX_DIR/dunovo.py" -r $min_reads -q $qual_thres -F $qual_format '$input'
+  <command detect_errors="exit_code">dunovo.sh -r $min_reads -q $qual_thres -F $qual_format '$input' '$dcs1' '$dcs2'
     #if $keep_sscs:
-      --sscs-file sscs.fa
+      '$sscs1' '$sscs2'
     #end if
-    > duplex.fa
-    && python "\$DUPLEX_DIR/utils/outconv.py" duplex.fa -1 '$dcs1' -2 '$dcs2'
-    #if $keep_sscs:
-      && python "\$DUPLEX_DIR/utils/outconv.py" sscs.fa -1 '$sscs1' -2 '$sscs2'
-    #end if
-  ]]>
   </command>
   <inputs>
     <param name="input" type="data" format="tabular" label="Aligned input reads" />
