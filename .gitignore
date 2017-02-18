@@ -9,3 +9,5 @@ test.*
 misc
 align
 consensus
+utils/*.fq
+utils/*.fq.gz
