@@ -1,0 +1,41 @@
+
+package:
+  name: dunovo
+  version: 0.6
+
+source:
+  fn: v0.6.tar.gz
+  url: https://github.com/galaxyproject/dunovo/archive/v0.6.tar.gz
+  sha256: a3cc378c22fcfc3bcaa11129f27f61bab5ff51cc9185320d53ece273b56e6214
+
+build:
+  number: 0
+
+requirements:
+  skip: True  # [py3k or osx]
+  build:
+    - make
+    - gcc
+
+  run:
+    - libgcc
+    - python >=2.6,<3
+    - argparse  # [py26]
+    - mafft 7.221
+    - samtools 0.1.18
+    - bowtie2 2.2.4
+    - networkx
+    - paste
+    - gawk
+
+test:
+  commands:
+    - 'correct.py -h > /dev/null'
+    - 'align_families.py -h > /dev/null'
+    - 'dunovo.py -h > /dev/null'
+
+about:
+  home: https://github.com/galaxyproject/dunovo
+  license: BSD
+  license_file: LICENSE.txt
+  summary: "Du Novo: A pipeline for processing duplex sequencing data."
