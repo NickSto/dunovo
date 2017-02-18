@@ -81,6 +81,7 @@ initial_declarations=$(declare -F)
 
 # Do all tests.
 function all {
+  barcodes
   align
   align_p3
   duplex
@@ -88,6 +89,7 @@ function all {
   stats_diffs
 }
 
+# make-barcodes.awk
 function barcodes {
   echo -e "\tmake-barcodes.awk ::: families.raw_[12].fq"
   paste "$dirname/families.raw_1.fq" "$dirname/families.raw_2.fq" | paste - - - - \
