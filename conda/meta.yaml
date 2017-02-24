@@ -1,29 +1,29 @@
 
 package:
   name: dunovo
-  version: 0.6.2
+  version: 0.7.1
 
 source:
-  fn: v0.6.2.tar.gz
-  url: https://github.com/galaxyproject/dunovo/archive/v0.6.2.tar.gz
-  sha256: 04cb2646b5b451add8bf39d1d458e178b16318fe2a9f4958a7fe5c00a6d9a354
+  fn: v0.7.1.tar.gz
+  url: https://github.com/galaxyproject/dunovo/archive/v0.7.1.tar.gz
+  sha256: c10c54bd2b33929bbd7c78b9d9d98818793f8da3d59bfe4ed7499587bfdef24d
 
 build:
   number: 0
+  skip: True  # [py3k or osx]
 
 requirements:
-  skip: True  # [py3k or osx]
   build:
     - make
     - gcc
+    - python
 
   run:
     - libgcc
-    - python >=2.6
-    - argparse  # [py26]
+    - python
     - mafft 7.221
     - samtools 0.1.18
-    - bowtie2 2.2.4
+    - bowtie2 2.2.5
     - networkx
     - paste
     - gawk
