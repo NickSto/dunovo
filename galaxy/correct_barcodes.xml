@@ -2,7 +2,7 @@
 <tool id="correct_barcodes" name="Du Novo: Correct barcodes" version="0.7">
   <description>of duplex sequencing reads</description>
   <requirements>
-    <requirement type="package" version="2.1.0">bowtie2</requirement>
+    <requirement type="package" version="2.2.5">bowtie2</requirement>
     <requirement type="package" version="0.1.18">samtools</requirement>
     <requirement type="package" version="1.9">networkx</requirement>
     <requirement type="package" version="0.7">dunovo</requirement>
