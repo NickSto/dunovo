@@ -55,12 +55,19 @@ function main {
     sscs_args='--sscs-file sscs.fa'
   fi
 
+  # Locate outconv.py.
+  # In $script_dir/utils in a normal installation, $script_dir in a Conda installation.
+  outconv_script="$script_dir/utils/outconv.py"
+  if ! [[ -f "$outconv_script" ]]; then
+    outconv_script="$script_dir/outconv.py"
+  fi
+
   python2 "$script_dir/dunovo.py" -r $min_reads -q $qual_thres -F $qual_format "$alignments" \
     $sscs_args > duplex.fa
-  python2 "$script_dir/utils/outconv.py" duplex.fa -1 "$dcs1" -2 "$dcs2"
+  python2 "$outconv_script" duplex.fa -1 "$dcs1" -2 "$dcs2"
 
   if [[ $keep_sscs ]]; then
-    python2 "$script_dir/utils/outconv.py" sscs.fa -1 "$sscs1" -2 "$sscs2"
+    python2 "$outconv_script" sscs.fa -1 "$sscs1" -2 "$sscs2"
   fi
 }
 
