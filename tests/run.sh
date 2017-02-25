@@ -129,7 +129,7 @@ function duplex_gapqual {
 
 function stats_diffs {
   echo -e "\tstats.py diffs ::: gaps.msa.tsv:"
-  python "$dirname/../stats.py" diffs "$dirname/gaps.msa.tsv" | diff -s - "$dirname/gaps-diffs.out.tsv"
+  python "$dirname/../utils/stats.py" diffs "$dirname/gaps.msa.tsv" | diff -s - "$dirname/gaps-diffs.out.tsv"
 }
 
 main "$@"
