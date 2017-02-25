@@ -8,13 +8,11 @@ import tempfile
 import argparse
 import subprocess
 import collections
-import distutils.spawn
 import consensus
 import swalign
 
 SANGER_START = 33
 SOLEXA_START = 64
-REQUIRED_COMMANDS = []
 OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
 DESCRIPTION = """Build consensus sequences from read aligned families. Prints duplex consensus
@@ -63,8 +61,6 @@ def main(argv):
     help='Number of processes to use. If > 1, launches this many worker subprocesses. Note: if '
          'this option is used, no output will be generated until the end of the entire run, so no '
          'streaming is possible. Default: %(default)s.')
-  parser.add_argument('-S', '--slurm', action='store_true',
-    help='If --processes > 1, prepend sub-commands with "srun -C new".')
 
   args = parser.parse_args(argv[1:])
 
@@ -82,16 +78,6 @@ def main(argv):
     static['qual_thres'] = chr(args.qual + SOLEXA_START)
   else:
     fail('Error: unrecognized --qual-format.')
-
-  # Check for required commands.
-  missing_commands = []
-  if args.slurm:
-    REQUIRED_COMMANDS.append('srun')
-  for command in REQUIRED_COMMANDS:
-    if not distutils.spawn.find_executable(command):
-      missing_commands.append(command)
-  if missing_commands:
-    fail('Error: Missing commands: "'+'", "'.join(missing_commands)+'".')
 
   if args.infile:
     infile = open(args.infile)
