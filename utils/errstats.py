@@ -20,6 +20,7 @@ def make_argparser():
   parser.add_argument('infile', metavar='families.msa.tsv', nargs='?', type=argparse.FileType('r'),
     help='')
   parser.add_argument('-H', '--human', action='store_true')
+  parser.add_argument('-S', '--status-file', type=argparse.FileType('w'))
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
   parser.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL)
@@ -37,21 +38,22 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
 
-  run(args.infile)
+  run(args.infile, human=args.human, status_file=args.status_file)
 
 
-def run(infile):
-
+def run(infile, human=False, status_file=None):
   for family in parse(infile):
     for order in ('ab', 'ba'):
       for mate in (0, 1):
         alignment = family[order][mate]
         if alignment:
-          consensus, errors, errors_per_seq, new_align = compare(alignment)
-          for seq, errors_in_seq in zip(new_align, errors_per_seq):
-            print('{} errors: {}'.format(seq, errors_in_seq))
-          print('{} errors: {}'.format(consensus, errors))
-          print()
+          consensus, errors, new_align = compare(alignment, human)
+          if human:
+            for seq, seq_errors in zip(new_align, errors):
+              print('{} errors: {}'.format(seq, seq_errors))
+            print('{} errors: {}\n'.format(consensus, sum(errors)))
+          else:
+            print(family['bar'], order, mate, *errors, sep='\t')
 
 
 def parse(infile):
@@ -72,48 +74,38 @@ def parse(infile):
   yield family
 
 
-def compare(alignment):
-  errors = 0
-  i = 0
-  end = False
+def compare(alignment, make_new_align=False):
   consensus = ''
   new_align = [''] * len(alignment)
-  errors_per_seq = [0] * len(alignment)
-  while not end:
+  errors = [0] * len(alignment)
+  for bases in zip(*alignment):
     votes = {'A':0, 'C':0, 'G':0, 'T':0, '-':0, 'N':0}
-    for seq in alignment:
-      try:
-        base = seq[i]
-      except IndexError:
-        end = True
-        break
-      votes[base] += 1
-    if end:
-      break
-    # Tally the votes.
     cons = 'N'
     max_vote = 0
-    for base, vote in votes.items():
+    for base in bases:
+      vote = votes[base]
+      vote += 1
       if vote == max_vote:
         cons = 'N'
       elif vote > max_vote:
         max_vote = vote
         cons = base
-    # Count errors.
-    if cons != 'N':
-      for base, vote in votes.items():
-        if base != cons:
-          errors += vote
+      votes[base] = vote
     # Make new alignment without consensus bases.
-    for j, seq in enumerate(alignment):
-      if seq[i] == cons:
-        new_align[j] += '.'
-      else:
-        new_align[j] += seq[i]
-        errors_per_seq[j] += 1
+    if make_new_align:
+      for i, base in enumerate(bases):
+        if base == cons:
+          new_align[i] += '.'
+        else:
+          new_align[i] += base
+          errors[i] += 1
+    else:
+      for i, base in enumerate(bases):
+        if base != cons:
+          errors[i] += 1
     consensus += cons
     i += 1
-  return consensus, errors, errors_per_seq, new_align
+  return consensus, errors, new_align
 
 
 def tone_down_logger():
