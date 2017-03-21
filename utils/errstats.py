@@ -47,13 +47,13 @@ def run(infile, human=False, status_file=None):
       for mate in (0, 1):
         alignment = family[order][mate]
         if alignment:
-          consensus, errors, new_align = compare(alignment, human)
+          consensus, errors, repeat_errors, new_align = compare(alignment, human)
           if human:
             for seq, seq_errors in zip(new_align, errors):
               print('{} errors: {}'.format(seq, seq_errors))
-            print('{} errors: {}\n'.format(consensus, sum(errors)))
+            print('{} errors: {}, repeat errors: {}\n'.format(consensus, sum(errors), repeat_errors))
           else:
-            print(family['bar'], order, mate, *errors, sep='\t')
+            print(family['bar'], order, mate, repeat_errors, *errors, sep='\t')
 
 
 def parse(infile):
@@ -75,10 +75,13 @@ def parse(infile):
 
 
 def compare(alignment, make_new_align=False):
+  num_seqs = len(alignment)
   consensus = ''
-  new_align = [''] * len(alignment)
-  errors = [0] * len(alignment)
+  new_align = [''] * num_seqs
+  errors = [0] * num_seqs
+  repeat_errors = 0
   for bases in zip(*alignment):
+    # Tally how many of each base there are at this position, and find the "winner" (the consensus).
     votes = {'A':0, 'C':0, 'G':0, 'T':0, '-':0, 'N':0}
     cons = 'N'
     max_vote = 0
@@ -92,20 +95,19 @@ def compare(alignment, make_new_align=False):
         cons = base
       votes[base] = vote
     # Make new alignment without consensus bases.
-    if make_new_align:
-      for i, base in enumerate(bases):
-        if base == cons:
-          new_align[i] += '.'
-        else:
-          new_align[i] += base
-          errors[i] += 1
-    else:
-      for i, base in enumerate(bases):
-        if base != cons:
-          errors[i] += 1
+    for i, base in enumerate(bases):
+      if base == cons:
+        new_align[i] += '.'
+      else:
+        new_align[i] += base
+        errors[i] += 1
+    # How often do we see the same error more than once?
+    for base, vote in votes.items():
+      if base != cons and vote > 1:
+        repeat_errors += 1
     consensus += cons
     i += 1
-  return consensus, errors, new_align
+  return consensus, errors, repeat_errors, new_align
 
 
 def tone_down_logger():
