@@ -10,10 +10,20 @@ import argparse
 
 ARG_DEFAULTS = {'input':sys.stdin, 'log':sys.stderr, 'volume':logging.ERROR}
 DESCRIPTION = """Tally statistics on errors in reads, compared to the rest of their (single-
-stranded) families. Output columns without --all-repeats: 1. barcode, 2. order, 3. mate, 4. number
-of errors that occurred more than once, 5-end. number of errors in each read. With --all-repeats:
-1. barcode, 2. order, 3. mate, 4. number of reads, 5-end. count of occurrence of each error that
-occurred more than once."""
+stranded) families.
+Output columns without --all-repeats:
+1. barcode
+2. order
+3. mate
+4. number of reads
+5. number of errors that occurred more than once
+6-end. number of errors in each read.
+With --all-repeats:
+1. barcode
+2. order
+3. mate
+4. number of reads
+5-end. count of occurrence of each error that occurred more than once."""
 
 
 def make_argparser():
@@ -64,7 +74,7 @@ def run(infile, human=False, all_repeats=False, *nargs, **kwargs):
           elif all_repeats:
             print(family['bar'], order, mate, len(alignment), *repeat_errors, sep='\t')
           else:
-            print(family['bar'], order, mate, repeat_errors, *errors, sep='\t')
+            print(family['bar'], order, mate, len(alignment), repeat_errors, *errors, sep='\t')
 
 
 def parse(infile):
