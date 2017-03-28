@@ -11,3 +11,4 @@ align
 consensus
 utils/*.fq
 utils/*.fq.gz
+.gitattributes
