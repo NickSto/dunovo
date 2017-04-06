@@ -119,7 +119,8 @@ function duplex {
 # dunovo.py quality score consideration
 function duplex_qual {
   echo -e "\tdunovo.py ::: qual.msa.tsv:"
-  python "$dirname/../dunovo.py" --incl-sscs -q 20 "$dirname/qual.msa.tsv" | diff -s - "$dirname/qual.cons.fa"
+  python "$dirname/../dunovo.py" --incl-sscs -q 20 "$dirname/qual.msa.tsv" | diff -s - "$dirname/qual.cons.20.fa"
+  python "$dirname/../dunovo.py" --incl-sscs -q 10 "$dirname/qual.msa.tsv" | diff -s - "$dirname/qual.cons.10.fa"
 }
 
 function duplex_gapqual {
