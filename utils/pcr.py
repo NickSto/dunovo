@@ -71,10 +71,11 @@ def equation1(i, n, x):
 
 
 def factorial(n):
-  if n <= 1:
-    return n
-  else:
-    return n * factorial(n-1)
+  """A non-recursive factorial function. Because why not."""
+  product = 1
+  for i in range(n, 1, -1):
+    product *= i
+  return product
 
 
 def tone_down_logger():
