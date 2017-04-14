@@ -44,25 +44,29 @@ def main(argv):
 
 
 def calc(n, x, k):
-  numerator = summation(n, x, k)
+  """Calculate the equation:
+  $\frac{\sum_{i=1}^k 2^i \frac{n!}{(n - x)! x!} \frac{1}{2^i}^x (1 - \frac{1}{2^i})^{n - x} }
+  {\sum_{y=1}^{n-1} \sum_{i=1}^k 2^i \frac{n!}{(n-y)!y!} \frac{1}{2^i}^y (1 - \frac{1}{2^i})^{n-y}}$
+  """
+  numerator = summation(equation1, 1, k, n, x)
   denominator = 0
   for y in range(1, n):
-    denominator += summation(n, y, k)
+    denominator += summation(equation1, 1, k, n, y)
   return numerator/denominator
 
 
-def summation(n, x, k):
+def summation(function, start, end, *args):
   sum = 0
-  for i in range(1, k+1):
-    sum += equation1(n, x, i)
+  for i in range(start, end+1):
+    sum += function(i, *args)
   return sum
 
 
-def equation1(n, x, i):
+def equation1(i, n, x):
   mult1 = 2**i
   mult2 = factorial(n)/(factorial(n-x)*factorial(x))
-  mult3 = (1/(2**i))**x
-  mult4 = (1-(1/(2**i)))**(n-x)
+  mult3 = (1/2**i)**x
+  mult4 = (1-(1/2**i))**(n-x)
   return mult1 * mult2 * mult3 * mult4
 
 
