@@ -24,7 +24,7 @@ With --all-repeats:
 2. order
 3. mate
 4. number of reads
-5-end. count of occurrence of each error that occurred more than once."""
+5-end. count of occurrence of each error."""
 
 
 def make_argparser():
@@ -177,12 +177,13 @@ def compare(seq_align, qual_align=None, thres=None, qual_format='sanger', all_re
       else:
         new_align[i] += base
         errors[i] += 1
-    # How often do we see the same error more than once?
+    # How often did each error occur at this position?
+    # (counting each unique non-consensus base as an error)
     for base, vote in votes.items():
-      if base != cons and vote > 1:
+      if base != cons:
         if all_repeats:
           repeat_errors.append(vote)
-        else:
+        elif vote > 1:
           repeat_errors += 1
     consensus += cons
     i += 1
