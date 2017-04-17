@@ -45,8 +45,8 @@ def main(argv):
 
 def calc(n, x, k):
   """Calculate the equation:
-  $\frac{\sum_{i=1}^k 2^i \frac{n!}{(n - x)! x!} \frac{1}{2^i}^x (1 - \frac{1}{2^i})^{n - x} }
-  {\sum_{y=1}^{n-1} \sum_{i=1}^k 2^i \frac{n!}{(n-y)!y!} \frac{1}{2^i}^y (1 - \frac{1}{2^i})^{n-y}}$
+  $\frac{\sum_{i=1}^k 2^i {n \choose x} \frac{1}{2^i}^x (1 - \frac{1}{2^i})^{n - x} }
+  {\sum_{y=1}^{n-1} \sum_{i=1}^k 2^i {n \choose y} \frac{1}{2^i}^y (1 - \frac{1}{2^i})^{n-y}}$
   """
   numerator = summation(equation1, 1, k, n, x)
   denominator = 0
@@ -63,11 +63,16 @@ def summation(function, start, end, *args):
 
 
 def equation1(i, n, x):
-  mult1 = 2**i
-  mult2 = factorial(n)/(factorial(n-x)*factorial(x))
-  mult3 = (1/2**i)**x
-  mult4 = (1-(1/2**i))**(n-x)
+  two_i = 2**i
+  mult1 = two_i
+  mult2 = n_choose_k(n, x)
+  mult3 = (1/two_i)**x
+  mult4 = (1-(1/two_i))**(n-x)
   return mult1 * mult2 * mult3 * mult4
+
+
+def n_choose_k(n, k):
+  return factorial(n)/(factorial(k)*factorial(n-k))
 
 
 def factorial(n):
