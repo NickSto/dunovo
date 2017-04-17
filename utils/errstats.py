@@ -123,7 +123,7 @@ def parse(infile):
     if barcode != last_barcode:
       if last_barcode is not None:
         yield family
-      family = {'bar':None, 'ab':(([],[]), ([],[])), 'ba':(([],[]), ([],[]))}
+      family = {'bar':barcode, 'ab':(([],[]), ([],[])), 'ba':(([],[]), ([],[]))}
       last_barcode = barcode
     family[order][mate][0].append(seq)
     family[order][mate][1].append(quals)
