@@ -3,14 +3,19 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import unicode_literals
+import os
 import sys
 import errno
 import logging
 import argparse
+# sys.path hack to access lib package in root directory.
+sys.path.insert(1, os.path.dirname(sys.path[0]))
+sys.path.insert(2, os.path.join(sys.path[1], 'lib'))
+from lib import simplewrap
 
 ARG_DEFAULTS = {'input':sys.stdin, 'qual_thres':0, 'qual_format':'sanger', 'log':sys.stderr,
                 'volume':logging.ERROR}
-DESCRIPTION = """Tally statistics on errors in reads, compared to the rest of their (single-
+DESCRIPTION = """Tally statistics on errors in reads, compared to the rest of their (single-\
 stranded) families.
 Output columns without --all-repeats:
 1. barcode
@@ -29,7 +34,13 @@ With --all-repeats:
 
 def make_argparser():
 
-  parser = argparse.ArgumentParser(description=DESCRIPTION)
+  # Need to use argparse.RawDescriptionHelpFormatter to preserve formatting in the
+  # description of columns in the tsv output. But to still accommodate different
+  # terminal widths, dynamic wrapping with simplewrap will be necessary.
+  wrap = simplewrap.Wrapper().wrap
+
+  parser = argparse.ArgumentParser(description=wrap(DESCRIPTION),
+                                   formatter_class=argparse.RawDescriptionHelpFormatter)
   parser.set_defaults(**ARG_DEFAULTS)
 
   parser.add_argument('input', metavar='families.msa.tsv', nargs='?', type=argparse.FileType('r'),

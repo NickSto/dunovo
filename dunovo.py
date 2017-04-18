@@ -8,6 +8,7 @@ import tempfile
 import argparse
 import subprocess
 import collections
+from lib import simplewrap
 import consensus
 import swalign
 
@@ -15,52 +16,62 @@ SANGER_START = 33
 SOLEXA_START = 64
 OPT_DEFAULTS = {'min_reads':3, 'processes':1, 'qual':20, 'qual_format':'sanger'}
 USAGE = "%(prog)s [options]"
-DESCRIPTION = """Build consensus sequences from read aligned families. Prints duplex consensus
-sequences in FASTA to stdout. The sequence ids are BARCODE.MATE, e.g. "CTCAGATAACATACCTTATATGCA.1",
-where "BARCODE" is the input barcode, and "MATE" is "1" or "2" as an arbitrary designation of the
-two reads in the pair. The id is followed by the count of the number of reads in the two families
-(one from each strand) that make up the duplex, in the format READS1/READS2. If the duplex is
-actually a single-strand consensus because the matching strand is missing, only one number is
+DESCRIPTION = """Build consensus sequences from read aligned families. Prints duplex consensus \
+sequences in FASTA to stdout. The sequence ids are BARCODE.MATE, e.g. "CTCAGATAACATACCTTATATGCA.1", \
+where "BARCODE" is the input barcode, and "MATE" is "1" or "2" as an arbitrary designation of the \
+two reads in the pair. The id is followed by the count of the number of reads in the two families \
+(one from each strand) that make up the duplex, in the format READS1/READS2. If the duplex is \
+actually a single-strand consensus because the matching strand is missing, only one number is \
 listed.
-Rules for consensus building: Single-strand consensus sequences are made by counting how many of
-each base are at a given position. Bases with a PHRED quality score below the --qual threshold are
-not counted. If a majority of the reads (that pass the --qual threshold at that position) have one
-base at that position, then that base is used as the consensus base. If no base has a majority, then
-an N is used. Duplex consensus sequences are made by aligning pairs of single-strand consensuses,
-and comparing bases at each position. If they agree, that base is used in the consensus. Otherwise,
+Rules for consensus building: Single-strand consensus sequences are made by counting how many of \
+each base are at a given position. Bases with a PHRED quality score below the --qual threshold are \
+not counted. If a majority of the reads (that pass the --qual threshold at that position) have one \
+base at that position, then that base is used as the consensus base. If no base has a majority, then \
+an N is used. Duplex consensus sequences are made by aligning pairs of single-strand consensuses, \
+and comparing bases at each position. If they agree, that base is used in the consensus. Otherwise, \
 the IUPAC ambiguity code for both bases is used (N + anything and gap + non-gap result in an N)."""
 
 
 def main(argv):
 
-  parser = argparse.ArgumentParser(description=DESCRIPTION)
+  wrapper = simplewrap.Wrapper()
+  wrap = wrapper.wrap
+
+  parser = argparse.ArgumentParser(description=wrap(DESCRIPTION),
+                                   formatter_class=argparse.RawTextHelpFormatter)
   parser.set_defaults(**OPT_DEFAULTS)
 
+  wrapper.width = wrapper.width - 24
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
-    help='The output of align_families.py. 6 columns: 1. (canonical) barcode. 2. order ("ab" or '
-         '"ba"). 3. mate ("1" or "2"). 4. read name. 5. aligned sequence. 6. aligned quality '
-         'scores.')
+    help=wrap('The output of align_families.py. 6 columns:\n'
+              '1. (canonical) barcode\n'
+              '2. order ("ab" or "ba")\n'
+              '3. mate ("1" or "2")\n'
+              '4. read name\n'
+              '5. aligned sequence\n'
+              '6. aligned quality scores.'))
   parser.add_argument('-r', '--min-reads', type=int,
-    help='The minimum number of reads (from each strand) required to form a single-strand '
-         'consensus. Strands with fewer reads will be skipped. Default: %(default)s.')
+    help=wrap('The minimum number of reads (from each strand) required to form a single-strand '
+              'consensus. Strands with fewer reads will be skipped. Default: %(default)s.'))
   parser.add_argument('-q', '--qual', type=int,
-    help='Base quality threshold. Bases below this quality will not be counted. '
-         'Default: %(default)s.')
+    help=wrap('Base quality threshold. Bases below this quality will not be counted. '
+              'Default: %(default)s.'))
   parser.add_argument('-F', '--qual-format', choices=('sanger', 'solexa'),
-    help='FASTQ quality score format. Sanger scores are assumed to begin at \'{}\' ({}). Default: '
-         '%(default)s.'.format(SANGER_START, chr(SANGER_START)))
+    help=wrap('FASTQ quality score format. Sanger scores are assumed to begin at \'{}\' ({}). '
+              'Default: %(default)s.'.format(SANGER_START, chr(SANGER_START))))
   parser.add_argument('--incl-sscs', action='store_true',
-    help='When outputting duplex consensus sequences, include reads without a full duplex (missing '
-         'one strand). The result will just be the single-strand consensus of the remaining read.')
+    help=wrap('When outputting duplex consensus sequences, include reads without a full duplex '
+              '(missing one strand). The result will just be the single-strand consensus of the '
+              'remaining read.'))
   parser.add_argument('-s', '--sscs-file',
-    help='Save single-strand consensus sequences in this file (FASTA format). Currently does not '
-         'work when in parallel mode.')
+    help=wrap('Save single-strand consensus sequences in this file (FASTA format). Currently does '
+              'not work when in parallel mode.'))
   parser.add_argument('-l', '--log', metavar='LOG_FILE', dest='stats_file',
-    help='Print statistics on the run to this file. Use "-" to print to stderr.')
+    help=wrap('Print statistics on the run to this file. Use "-" to print to stderr.'))
   parser.add_argument('-p', '--processes', type=int,
-    help='Number of processes to use. If > 1, launches this many worker subprocesses. Note: if '
-         'this option is used, no output will be generated until the end of the entire run, so no '
-         'streaming is possible. Default: %(default)s.')
+    help=wrap('Number of processes to use. If > 1, launches this many worker subprocesses. Note: '
+              'if this option is used, no output will be generated until the end of the entire '
+              'run, so no streaming is possible. Default: %(default)s.'))
 
   args = parser.parse_args(argv[1:])
 

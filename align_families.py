@@ -9,6 +9,7 @@ import subprocess
 import collections
 import multiprocessing
 import distutils.spawn
+from lib import simplewrap
 import seqtools
 
 #TODO: Warn if it looks like the two input FASTQ files are the same (i.e. the _1 file was given
@@ -24,16 +25,27 @@ DESCRIPTION = """Read in sorted FASTQ data and do multiple sequence alignments o
 
 def main(argv):
 
-  parser = argparse.ArgumentParser(description=DESCRIPTION)
+  wrapper = simplewrap.Wrapper()
+  wrap = wrapper.wrap
+
+  parser = argparse.ArgumentParser(description=wrap(DESCRIPTION),
+                                   formatter_class=argparse.RawTextHelpFormatter)
   parser.set_defaults(**OPT_DEFAULTS)
 
+  wrapper.width = wrapper.width - 24
   parser.add_argument('infile', metavar='read-families.tsv', nargs='?',
-    help='The input reads, sorted into families. One line per read pair, 8 tab-delimited columns: '
-         '1. canonical barcode, 2. barcode order ("ab" for alpha+beta, "ba" for beta-alpha) 3. '
-         'read 1 name, 4. read 1 sequence, 5. read 1 quality scores, 6. read 2 name, 7. read 2 '
-         'sequence, 8. read 2 quality scores.')
+    help=wrap('The input reads, sorted into families. One line per read pair, 8 tab-delimited '
+              'columns:\n'
+              '1. canonical barcode\n'
+              '2. barcode order ("ab" for alpha+beta, "ba" for beta-alpha)\n'
+              '3. read 1 name\n'
+              '4. read 1 sequence\n'
+              '5. read 1 quality scores\n'
+              '6. read 2 name\n'
+              '7. read 2 sequence\n'
+              '8. read 2 quality scores'))
   parser.add_argument('-p', '--processes', type=int,
-    help='Number of worker subprocesses to use. Must be at least 1. Default: %(default)s.')
+    help=wrap('Number of worker subprocesses to use. Must be at least 1. Default: %(default)s.'))
 
   args = parser.parse_args(argv[1:])
 
