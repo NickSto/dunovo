@@ -9,6 +9,7 @@ import argparse
 import resource
 import subprocess
 import networkx
+from lib import version
 import swalign
 
 VERBOSE = (logging.DEBUG+logging.INFO)//2
@@ -65,6 +66,8 @@ def main(argv):
   parser.add_argument('-v', '--verbose', dest='volume', action='store_const', const=VERBOSE)
   parser.add_argument('-D', '--debug', dest='volume', action='store_const', const=logging.DEBUG,
     help='Print debug messages (very verbose).')
+  parser.add_argument('--version', action='version', version=str(version.get_version()),
+    help='Print the version number and exit.')
 
   args = parser.parse_args(argv[1:])
 

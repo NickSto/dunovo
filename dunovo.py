@@ -73,7 +73,7 @@ def main(argv):
     help=wrap('Number of processes to use. If > 1, launches this many worker subprocesses. Note: '
               'if this option is used, no output will be generated until the end of the entire '
               'run, so no streaming is possible. Default: %(default)s.'))
-  parser.add_argument('-v', '--version', action='version', version=version.get_version(),
+  parser.add_argument('-v', '--version', action='version', version=str(version.get_version()),
     help=wrap('Print the version number and exit.'))
 
   args = parser.parse_args(argv[1:])

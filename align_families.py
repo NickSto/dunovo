@@ -47,7 +47,7 @@ def main(argv):
               '8. read 2 quality scores'))
   parser.add_argument('-p', '--processes', type=int,
     help=wrap('Number of worker subprocesses to use. Must be at least 1. Default: %(default)s.'))
-  parser.add_argument('-v', '--version', action='version', version=version.get_version(),
+  parser.add_argument('-v', '--version', action='version', version=str(version.get_version()),
     help=wrap('Print the version number and exit.'))
 
   args = parser.parse_args(argv[1:])
