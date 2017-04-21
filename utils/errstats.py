@@ -29,7 +29,7 @@ With --all-repeats:
 2. order
 3. mate
 4. number of reads
-5-end. count of occurrence of each error."""
+5-end. count of how many times each error occurred in the family."""
 
 
 def make_argparser():
