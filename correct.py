@@ -10,6 +10,7 @@ import resource
 import subprocess
 import networkx
 from lib import version
+from ET import phone
 import swalign
 
 VERBOSE = (logging.DEBUG+logging.INFO)//2
@@ -23,6 +24,10 @@ corrected."""
 
 
 def main(argv):
+
+  if len(argv) == 2 and argv[1] == '--version' or argv[1] == '-v':
+    print(version.get_version())
+    return
 
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.set_defaults(**ARG_DEFAULTS)
@@ -66,6 +71,14 @@ def main(argv):
   parser.add_argument('-v', '--verbose', dest='volume', action='store_const', const=VERBOSE)
   parser.add_argument('-D', '--debug', dest='volume', action='store_const', const=logging.DEBUG,
     help='Print debug messages (very verbose).')
+  parser.add_argument('--ET', action='store_true',
+    help='Report helpful usage data to the developer, to better understand the use cases and '
+         'performance of the tool. The only data which will be recorded is the name and version of '
+         'the tool, the size of the input data, the time taken to process it, and the IP address '
+         'of the machine running it. No parameters or filenames are sent. All the reporting and '
+         'recording code is available at https://github.com/NickSto/ET.')
+  parser.add_argument('--ET-test', action='store_true')
+  parser.add_argument('--galaxy', action='store_true')
   parser.add_argument('--version', action='version', version=str(version.get_version()),
     help='Print the version number and exit.')
 
@@ -73,6 +86,9 @@ def main(argv):
 
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
+
+  if args.ET:
+    run_id = send_start()
 
   logging.info('Reading the fasta/q to map read names to barcodes..')
   names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
@@ -600,6 +616,14 @@ def run_command(*command):
   except OSError:
     exit_status = None
   return exit_status
+
+
+def send_start():
+  script = os.path.basename(__file__)
+  version_info = version.get_version()
+  run_id = phone.send_start(version_info.project, script, version_info.version)
+  # print(version_info.project, script, version_info.version, run_id)
+  return run_id
 
 
 def tone_down_logger():
