@@ -193,7 +193,8 @@ def compare(seq_align, qual_align=None, thres=None, qual_format='sanger', all_re
     for base, vote in votes.items():
       if base != cons:
         if all_repeats:
-          repeat_errors.append(vote)
+          if vote > 0:
+            repeat_errors.append(vote)
         elif vote > 1:
           repeat_errors += 1
     consensus += cons
