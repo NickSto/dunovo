@@ -8,8 +8,11 @@ import errno
 import logging
 import argparse
 
-ARG_DEFAULTS = {'log':sys.stderr, 'volume':logging.ERROR}
-DESCRIPTION = """"""
+ARG_DEFAULTS = {'single':False, 'log':sys.stderr, 'volume':logging.ERROR}
+DESCRIPTION = """Calculate the probability that an error that occurs somewhere during the a PCR
+process with k cycles ends up in x reads out of n in a duplex family. Assumes a simple PCR model
+where every fragment is doubled every cycle. It prints four tab-delimited columns: k, n, x, and the
+probability of that x."""
 
 
 def make_argparser():
@@ -17,12 +20,19 @@ def make_argparser():
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.set_defaults(**ARG_DEFAULTS)
 
-  parser.add_argument('-x', type=int, required=True,
-    help='Number of reads with the error.')
+  parser.add_argument('-x', type=int,
+    help='Number of reads with the error. If omitted, it will output the probability of every '
+         'x from 1 to n/2 (or n-1 if --one-sided).')
   parser.add_argument('-n', type=int, required=True,
     help='Total number of reads.')
   parser.add_argument('-k', type=int, required=True,
     help='Number of PCR cycles.')
+  parser.add_argument('-1', '--1-sided', dest='single', action='store_true',
+    help='Only calculate the literal probability of x errors in n reads. Contrast with '
+         '--double-sided.')
+  parser.add_argument('-2', '--2-sided', dest='single', action='store_false',
+    help='Output P(x/n) + P((n-x)/n) (default). This is how real errors will appear in families, '
+         'since errors over 50%% will be considered the "correct", consensus base.')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
   parser.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL)
@@ -40,13 +50,34 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
 
-  print(calc(args.n, args.x, args.k))
+  if args.x is not None and (args.x < 1 or args.x >= args.n):
+    fail('-x must be between 0 and -n (you gave {})'.format(args.x))
+
+  if args.x:
+    x_values = [args.x]
+  else:
+    if args.single:
+      x_values = range(1, args.n)
+    else:
+      x_values = range(1, args.n//2+1)
+
+  for x in x_values:
+    if args.single or x/args.n == 0.5:
+      p = get_maf_prob(args.k, args.n, x)
+    else:
+      p1 = get_maf_prob(args.k, args.n, x)
+      p2 = get_maf_prob(args.k, args.n, args.n-x)
+      p = p1 + p2
+    print(args.k, args.n, x, p, sep='\t')
 
 
-def calc(n, x, k):
+def get_maf_prob(k, n, x):
   """Calculate the equation:
   $\frac{\sum_{i=1}^k 2^i {n \choose x} \frac{1}{2^i}^x (1 - \frac{1}{2^i})^{n - x} }
   {\sum_{y=1}^{n-1} \sum_{i=1}^k 2^i {n \choose y} \frac{1}{2^i}^y (1 - \frac{1}{2^i})^{n-y}}$
+  Where n is the total number of reads in the family, x is the number of reads containing a given
+  error, and k is the number of PCR cycles used. x/n should then be the frequency of the error in
+  the family.
   """
   numerator = summation(equation1, 1, k, n, x)
   denominator = 0
