@@ -11,7 +11,7 @@ import argparse
 import collections
 import scipy.stats
 
-ARG_DEFAULTS = {'log_file':sys.stderr, 'volume':logging.ERROR}
+ARG_DEFAULTS = {'min_obs':20, 'log_file':sys.stderr, 'volume':logging.ERROR}
 DESCRIPTION = """"""
 
 
@@ -24,6 +24,8 @@ def make_argparser():
     help='')
   parser.add_argument('observed', metavar='observed.tsv', type=argparse.FileType('r'),
     help='')
+  parser.add_argument('-m', '--min-obs', type=int,
+    help='The minimum number of errors required to perform the test on. Default: %(default)s')
   parser.add_argument('-l', '--log', action='store_true')
   parser.add_argument('-L', '--log-file', type=argparse.FileType('w'),
     help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
@@ -51,9 +53,12 @@ def main(argv):
     obs_freqs = all_obs_freqs[famsize]
     assert len(exp_freqs) == len(obs_freqs), famsize
     if len(exp_freqs) <= 1:
+      logging.info('{} in family {} is too few frequencies'.format(len(exp_freqs), famsize))
       continue
-    # for exp, obs in zip(exp_freqs, obs_freqs):
-    #   print('{:8.5f}\t{:8.5f}'.format(exp, obs))
+    if totals[famsize] < args.min_obs:
+      logging.info('{} in family {} is too few errors to test against.'
+                   .format(totals[famsize], famsize))
+      continue
     chi = scipy.stats.chisquare(obs_freqs, exp_freqs)
     if args.log:
       chi_stat = math.log(chi.statistic, 10)
