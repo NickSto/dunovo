@@ -635,7 +635,6 @@ def send_start(test, galaxy):
   script = os.path.basename(__file__)
   version_info = version.get_version()
   run_id = phone.send_start(version_info.project, script, version_info.version, test=test)
-  # print(version_info.project, script, version_info.version, run_id)
   return run_id
 
 
@@ -644,7 +643,6 @@ def send_end(run_id, run_time, run_data, test, galaxy):
   version_info = version.get_version()
   run_id = phone.send_end(version_info.project, script, version_info.version, run_id, run_time,
                           run_data, test=test)
-  # print(version_info.project, script, version_info.version, run_id)
   return run_id
 
 
