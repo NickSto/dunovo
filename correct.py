@@ -80,9 +80,6 @@ def main(argv):
          'recording code is available at https://github.com/NickSto/ET.')
   parser.add_argument('--test', action='store_true',
     help='If reporting usage data, mark this as a test run.')
-  parser.add_argument('--galaxy', action='store_true',
-    help='Tell the script that it is being used inside the Galaxy platform. Currently only changes '
-         'how usage data is reported.')
   parser.add_argument('--version', action='version', version=str(version.get_version()),
     help='Print the version number and exit.')
 
@@ -93,7 +90,7 @@ def main(argv):
 
   start_time = time.time()
   if args.phone_home:
-    run_id = send_start(args.test, args.galaxy)
+    run_id = send_start(args.test)
 
   logging.info('Reading the fasta/q to map read names to barcodes..')
   names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
@@ -131,7 +128,7 @@ def main(argv):
   if args.phone_home:
     run_data = {'barcodes':len(names_to_barcodes), 'good_alignments':num_good_alignments,
                 'read_pairs':read_pairs, 'max_mem':int(max_mem)}
-    send_end(run_id, run_time, run_data, args.test, args.galaxy)
+    send_end(run_id, run_time, run_data, args.test)
 
 
 def detect_format(reads_file, max_lines=7):
@@ -631,14 +628,14 @@ def run_command(*command):
   return exit_status
 
 
-def send_start(test, galaxy):
+def send_start(test):
   script = os.path.basename(__file__)
   version_info = version.get_version()
   run_id = phone.send_start(version_info.project, script, version_info.version, test=test)
   return run_id
 
 
-def send_end(run_id, run_time, run_data, test, galaxy):
+def send_end(run_id, run_time, run_data, test):
   script = os.path.basename(__file__)
   version_info = version.get_version()
   run_id = phone.send_end(version_info.project, script, version_info.version, run_id, run_time,
