@@ -4,6 +4,7 @@ from __future__ import print_function
 import os
 import sys
 import gzip
+import time
 import logging
 import argparse
 import resource
@@ -71,14 +72,17 @@ def main(argv):
   parser.add_argument('-v', '--verbose', dest='volume', action='store_const', const=VERBOSE)
   parser.add_argument('-D', '--debug', dest='volume', action='store_const', const=logging.DEBUG,
     help='Print debug messages (very verbose).')
-  parser.add_argument('--ET', action='store_true',
+  parser.add_argument('--phone-home', action='store_true',
     help='Report helpful usage data to the developer, to better understand the use cases and '
          'performance of the tool. The only data which will be recorded is the name and version of '
          'the tool, the size of the input data, the time taken to process it, and the IP address '
          'of the machine running it. No parameters or filenames are sent. All the reporting and '
          'recording code is available at https://github.com/NickSto/ET.')
-  parser.add_argument('--ET-test', action='store_true')
-  parser.add_argument('--galaxy', action='store_true')
+  parser.add_argument('--test', action='store_true',
+    help='If reporting usage data, mark this as a test run.')
+  parser.add_argument('--galaxy', action='store_true',
+    help='Tell the script that it is being used inside the Galaxy platform. Currently only changes '
+         'how usage data is reported.')
   parser.add_argument('--version', action='version', version=str(version.get_version()),
     help='Print the version number and exit.')
 
@@ -87,18 +91,20 @@ def main(argv):
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
   tone_down_logger()
 
-  if args.ET:
-    run_id = send_start()
+  start_time = time.time()
+  if args.phone_home:
+    run_id = send_start(args.test, args.galaxy)
 
   logging.info('Reading the fasta/q to map read names to barcodes..')
   names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
 
   logging.info('Reading the SAM to build the graph of barcode relationships..')
-  graph, reversed_barcodes = read_alignments(args.sam, names_to_barcodes, args.pos, args.mapq,
-                                             args.dist, args.limit)
+  graph, reversed_barcodes, num_good_alignments = read_alignments(args.sam, names_to_barcodes,
+                                                                  args.pos, args.mapq,
+                                                                  args.dist, args.limit)
 
   logging.info('Reading the families.tsv to get the counts of each family..')
-  family_counts = get_family_counts(args.families, args.limit)
+  family_counts, read_pairs = get_family_counts(args.families, args.limit)
 
   if args.structures:
     logging.info('Counting the unique barcode networks..')
@@ -116,8 +122,16 @@ def main(argv):
   print_corrected_output(families, corrections, reversed_barcodes, args.prepend, args.limit,
                          args.output)
 
+  end_time = time.time()
+  run_time = int(end_time - start_time)
   max_mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024
   logging.info('Max memory usage: {:0.2f}MB'.format(max_mem))
+  logging.info('Wall clock time:  {} seconds'.format(run_time))
+
+  if args.phone_home:
+    run_data = {'barcodes':len(names_to_barcodes), 'good_alignments':num_good_alignments,
+                'read_pairs':read_pairs, 'max_mem':int(max_mem)}
+    send_end(run_id, run_time, run_data, args.test, args.galaxy)
 
 
 def detect_format(reads_file, max_lines=7):
@@ -276,21 +290,20 @@ def parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
 
 def read_alignments(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thres, limit=None):
   """Read the alignments from the SAM file.
-  Returns (graph, reversed_barcodes):
+  Returns (graph, reversed_barcodes, num_good_alignments):
   graph: A networkx.Graph() containing a node per barcode (the sequence as a str), and an edge
     between every pair of barcodes that align to each other (with a threshold-passing alignment).
   reversed_barcodes: The set() of all barcode sequences that are involved in an alignment where the
     target is reversed (swapped halves, like alpha+beta -> beta+alpha). Both the query and reference
     sequence in each alignment are marked here.
-  Returns a dict mapping each reference sequence (RNAME) to sets of sequences (QNAMEs) that align to
-  it."""
+  num_good_alignments: The raw number of alignments processed that passed the filters."""
   graph = networkx.Graph()
   reversed_barcodes = set()
   # Maps correct barcode numbers to sets of original barcodes (includes correct ones).
-  line_num = 0
+  num_good_alignments = 0
   for qname, rname, reversed in parse_alignment(sam_file, pos_thres, mapq_thres, dist_thres):
-    line_num += 1
-    if limit is not None and line_num > limit:
+    num_good_alignments += 1
+    if limit is not None and num_good_alignments > limit:
       break
     # Skip self-alignments.
     if rname == qname:
@@ -304,7 +317,7 @@ def read_alignments(sam_file, names_to_barcodes, pos_thres, mapq_thres, dist_thr
     graph.add_node(rseq)
     graph.add_node(qseq)
     graph.add_edge(rseq, qseq)
-  return graph, reversed_barcodes
+  return graph, reversed_barcodes, num_good_alignments
 
 
 def get_family_counts(families_file, limit=None):
@@ -312,10 +325,10 @@ def get_family_counts(families_file, limit=None):
   family_counts = {}
   last_barcode = None
   this_family_counts = None
-  line_num = 0
+  read_pairs = 0
   for line in families_file:
-    line_num += 1
-    if limit is not None and line_num > limit:
+    read_pairs += 1
+    if limit is not None and read_pairs > limit:
       break
     fields = line.rstrip('\r\n').split('\t')
     barcode = fields[0]
@@ -330,7 +343,7 @@ def get_family_counts(families_file, limit=None):
   this_family_counts['all'] = this_family_counts['ab'] + this_family_counts['ba']
   family_counts[last_barcode] = this_family_counts
   families_file.close()
-  return family_counts
+  return family_counts, read_pairs
 
 
 def make_correction_table(meta_graph, family_counts, choose_by='count'):
@@ -618,10 +631,19 @@ def run_command(*command):
   return exit_status
 
 
-def send_start():
+def send_start(test, galaxy):
   script = os.path.basename(__file__)
   version_info = version.get_version()
-  run_id = phone.send_start(version_info.project, script, version_info.version)
+  run_id = phone.send_start(version_info.project, script, version_info.version, test=test)
+  # print(version_info.project, script, version_info.version, run_id)
+  return run_id
+
+
+def send_end(run_id, run_time, run_data, test, galaxy):
+  script = os.path.basename(__file__)
+  version_info = version.get_version()
+  run_id = phone.send_end(version_info.project, script, version_info.version, run_id, run_time,
+                          run_data, test=test)
   # print(version_info.project, script, version_info.version, run_id)
   return run_id
 
