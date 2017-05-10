@@ -90,7 +90,7 @@ def main(argv):
 
   start_time = time.time()
   if args.phone_home:
-    run_id = send_start(args.test)
+    run_id = phone.send_start(__file__, version.get_version(), test=args.test)
 
   logging.info('Reading the fasta/q to map read names to barcodes..')
   names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
@@ -128,7 +128,7 @@ def main(argv):
   if args.phone_home:
     run_data = {'barcodes':len(names_to_barcodes), 'good_alignments':num_good_alignments,
                 'read_pairs':read_pairs, 'max_mem':int(max_mem)}
-    send_end(run_id, run_time, run_data, args.test)
+    phone.send_end(__file__, version.get_version(), run_id, run_time, run_data, test=args.test)
 
 
 def detect_format(reads_file, max_lines=7):
@@ -626,21 +626,6 @@ def run_command(*command):
   except OSError:
     exit_status = None
   return exit_status
-
-
-def send_start(test):
-  script = os.path.basename(__file__)
-  version_info = version.get_version()
-  run_id = phone.send_start(version_info.project, script, version_info.version, test=test)
-  return run_id
-
-
-def send_end(run_id, run_time, run_data, test):
-  script = os.path.basename(__file__)
-  version_info = version.get_version()
-  run_id = phone.send_end(version_info.project, script, version_info.version, run_id, run_time,
-                          run_data, test=test)
-  return run_id
 
 
 def tone_down_logger():

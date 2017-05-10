@@ -63,7 +63,7 @@ def main(argv):
 
   start_time = time.time()
   if args.phone_home:
-    run_id = send_start(args.test)
+    run_id = phone.send_start(__file__, version.get_version(), test=args.test)
 
   assert args.processes > 0, '-p must be greater than zero'
 
@@ -149,7 +149,7 @@ def main(argv):
   if args.phone_home:
     stats['align_time'] = stats['time']
     del stats['time']
-    send_end(run_id, run_time, stats, args.test)
+    phone.send_end(__file__, version.get_version(), run_id, run_time, stats, test=args.test)
 
 
 def open_workers(num_workers):
@@ -308,21 +308,6 @@ def process_results(output, run_stats, stats):
     stats[key] += value
   if output:
     sys.stdout.write(output)
-
-
-def send_start(test):
-  script = os.path.basename(__file__)
-  version_info = version.get_version()
-  run_id = phone.send_start(version_info.project, script, version_info.version, test=test)
-  return run_id
-
-
-def send_end(run_id, run_time, run_data, test):
-  script = os.path.basename(__file__)
-  version_info = version.get_version()
-  run_id = phone.send_end(version_info.project, script, version_info.version, run_id, run_time,
-                          run_data, test=test)
-  return run_id
 
 
 def fail(message):
