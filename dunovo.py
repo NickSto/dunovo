@@ -10,6 +10,7 @@ import subprocess
 import collections
 from lib import simplewrap
 from lib import version
+from ET import phone
 import consensus
 import swalign
 
@@ -73,10 +74,22 @@ def main(argv):
     help=wrap('Number of processes to use. If > 1, launches this many worker subprocesses. Note: '
               'if this option is used, no output will be generated until the end of the entire '
               'run, so no streaming is possible. Default: %(default)s.'))
+  parser.add_argument('--phone-home', action='store_true',
+    help='Report helpful usage data to the developer, to better understand the use cases and '
+         'performance of the tool. The only data which will be recorded is the name and version of '
+         'the tool, the size of the input data, the time taken to process it, and the IP address '
+         'of the machine running it. No parameters or filenames are sent. All the reporting and '
+         'recording code is available at https://github.com/NickSto/ET.')
+  parser.add_argument('--test', action='store_true',
+    help='If reporting usage data, mark this as a test run.')
   parser.add_argument('-v', '--version', action='version', version=str(version.get_version()),
     help=wrap('Print the version number and exit.'))
 
   args = parser.parse_args(argv[1:])
+
+  start_time = time.time()
+  if args.phone_home:
+    run_id = phone.send_start(__file__, version.get_version(), test=args.test)
 
   assert args.processes > 0, '-p must be greater than zero'
   # Make dict of process_family() parameters that don't change between families.
@@ -160,15 +173,20 @@ def main(argv):
   if infile is not sys.stdin:
     infile.close()
 
-  if not args.stats_file:
-    return
+  end_time = time.time()
+  run_time = int(end_time - start_time)
 
   # Final stats on the run.
-  logging.info('Processed {} reads and {} duplexes.'
-               .format(all_reads, stats['runs']))
+  logging.info('Processed {} reads and {} duplexes in {} seconds.'
+               .format(all_reads, stats['runs'], run_time))
   per_read = stats['time'] / stats['reads']
   per_run = stats['time'] / stats['runs']
   logging.info('{:0.3f}s per read, {:0.3f}s per run.'.format(per_read, per_run))
+
+  if args.phone_home:
+    stats['consensus_time'] = stats['time']
+    del stats['time']
+    phone.send_end(__file__, version.get_version(), run_id, run_time, stats, test=args.test)
 
 
 def open_workers(num_workers, args):
