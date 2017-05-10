@@ -78,6 +78,9 @@ def main(argv):
          'the tool, the size of the input data, the time taken to process it, and the IP address '
          'of the machine running it. No parameters or filenames are sent. All the reporting and '
          'recording code is available at https://github.com/NickSto/ET.')
+  parser.add_argument('--galaxy', dest='platform', action='store_const', const='galaxy',
+    help='Tell the script it\'s running on Galaxy. Currently this only affects data reported '
+         'when phoning home.')
   parser.add_argument('--test', action='store_true',
     help='If reporting usage data, mark this as a test run.')
   parser.add_argument('--version', action='version', version=str(version.get_version()),
@@ -90,7 +93,7 @@ def main(argv):
 
   start_time = time.time()
   if args.phone_home:
-    run_id = phone.send_start(__file__, version.get_version(), test=args.test)
+    run_id = phone.send_start(__file__, version.get_version(), platform=args.platform, test=args.test)
 
   logging.info('Reading the fasta/q to map read names to barcodes..')
   names_to_barcodes = map_names_to_barcodes(args.reads, args.limit)
@@ -128,7 +131,8 @@ def main(argv):
   if args.phone_home:
     run_data = {'barcodes':len(names_to_barcodes), 'good_alignments':num_good_alignments,
                 'read_pairs':read_pairs, 'max_mem':int(max_mem)}
-    phone.send_end(__file__, version.get_version(), run_id, run_time, run_data, test=args.test)
+    phone.send_end(__file__, version.get_version(), run_id, run_time, run_data,
+                   platform=args.platform, test=args.test)
 
 
 def detect_format(reads_file, max_lines=7):

@@ -49,13 +49,16 @@ def main(argv):
   parser.add_argument('-p', '--processes', type=int,
     help=wrap('Number of worker subprocesses to use. Must be at least 1. Default: %(default)s.'))
   parser.add_argument('--phone-home', action='store_true',
-    help='Report helpful usage data to the developer, to better understand the use cases and '
-         'performance of the tool. The only data which will be recorded is the name and version of '
-         'the tool, the size of the input data, the time taken to process it, and the IP address '
-         'of the machine running it. No parameters or filenames are sent. All the reporting and '
-         'recording code is available at https://github.com/NickSto/ET.')
+    help=wrap('Report helpful usage data to the developer, to better understand the use cases and '
+              'performance of the tool. The only data which will be recorded is the name and '
+              'version of the tool, the size of the input data, the time taken to process it, and '
+              'the IP address of the machine running it. No parameters or filenames are sent. All '
+              'the reporting and recording code is available at https://github.com/NickSto/ET.'))
+  parser.add_argument('--galaxy', dest='platform', action='store_const', const='galaxy',
+    help=wrap('Tell the script it\'s running on Galaxy. Currently this only affects data reported '
+              'when phoning home.'))
   parser.add_argument('--test', action='store_true',
-    help='If reporting usage data, mark this as a test run.')
+    help=wrap('If reporting usage data, mark this as a test run.'))
   parser.add_argument('-v', '--version', action='version', version=str(version.get_version()),
     help=wrap('Print the version number and exit.'))
 
@@ -63,7 +66,7 @@ def main(argv):
 
   start_time = time.time()
   if args.phone_home:
-    run_id = phone.send_start(__file__, version.get_version(), test=args.test)
+    run_id = phone.send_start(__file__, version.get_version(), platform=args.platform, test=args.test)
 
   assert args.processes > 0, '-p must be greater than zero'
 
@@ -149,7 +152,8 @@ def main(argv):
   if args.phone_home:
     stats['align_time'] = stats['time']
     del stats['time']
-    phone.send_end(__file__, version.get_version(), run_id, run_time, stats, test=args.test)
+    phone.send_end(__file__, version.get_version(), run_id, run_time, stats, platform=args.platform,
+                   test=args.test)
 
 
 def open_workers(num_workers):
