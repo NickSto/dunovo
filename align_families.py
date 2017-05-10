@@ -11,6 +11,7 @@ import multiprocessing
 import distutils.spawn
 from lib import simplewrap
 from lib import version
+from ET import phone
 import seqtools
 
 #TODO: Warn if it looks like the two input FASTQ files are the same (i.e. the _1 file was given
@@ -47,10 +48,22 @@ def main(argv):
               '8. read 2 quality scores'))
   parser.add_argument('-p', '--processes', type=int,
     help=wrap('Number of worker subprocesses to use. Must be at least 1. Default: %(default)s.'))
+  parser.add_argument('--phone-home', action='store_true',
+    help='Report helpful usage data to the developer, to better understand the use cases and '
+         'performance of the tool. The only data which will be recorded is the name and version of '
+         'the tool, the size of the input data, the time taken to process it, and the IP address '
+         'of the machine running it. No parameters or filenames are sent. All the reporting and '
+         'recording code is available at https://github.com/NickSto/ET.')
+  parser.add_argument('--test', action='store_true',
+    help='If reporting usage data, mark this as a test run.')
   parser.add_argument('-v', '--version', action='version', version=str(version.get_version()),
     help=wrap('Print the version number and exit.'))
 
   args = parser.parse_args(argv[1:])
+
+  start_time = time.time()
+  if args.phone_home:
+    run_id = send_start(args.test)
 
   assert args.processes > 0, '-p must be greater than zero'
 
@@ -122,12 +135,21 @@ def main(argv):
   if infile is not sys.stdin:
     infile.close()
 
+  end_time = time.time()
+  run_time = int(end_time - start_time)
+
   # Final stats on the run.
   sys.stderr.write('Processed {pairs} read pairs in {duplexes} duplexes.\n'.format(**stats))
   if stats['aligned_pairs'] > 0:
     per_pair = stats['time'] / stats['aligned_pairs']
     per_run = stats['time'] / stats['runs']
     sys.stderr.write('{:0.3f}s per pair, {:0.3f}s per run.\n'.format(per_pair, per_run))
+    sys.stderr.write('{}s total time.\n'.format(run_time))
+
+  if args.phone_home:
+    stats['align_time'] = stats['time']
+    del stats['time']
+    send_end(run_id, run_time, stats, args.test)
 
 
 def open_workers(num_workers):
@@ -288,9 +310,25 @@ def process_results(output, run_stats, stats):
     sys.stdout.write(output)
 
 
+def send_start(test):
+  script = os.path.basename(__file__)
+  version_info = version.get_version()
+  run_id = phone.send_start(version_info.project, script, version_info.version, test=test)
+  return run_id
+
+
+def send_end(run_id, run_time, run_data, test):
+  script = os.path.basename(__file__)
+  version_info = version.get_version()
+  run_id = phone.send_end(version_info.project, script, version_info.version, run_id, run_time,
+                          run_data, test=test)
+  return run_id
+
+
 def fail(message):
   sys.stderr.write(message+"\n")
   sys.exit(1)
+
 
 if __name__ == '__main__':
   sys.exit(main(sys.argv))
