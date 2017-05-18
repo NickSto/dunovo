@@ -87,8 +87,26 @@ def main(argv):
   workers = open_workers(args.processes)
 
   # Main loop.
-  # This processes whole duplexes (pairs of strands) at a time for a future option to align the
-  # whole duplex at a time.
+  """This processes whole duplexes (pairs of strands) at a time for a future option to align the
+  whole duplex at a time.
+  duplex data structure:
+  duplex = {
+    'ab': [
+      {'name1': 'read_name1a',
+       'seq1':  'GATT-ACA',
+       'qual1': 'sc!0 /J*',
+       'name2': 'read_name1b',
+       'seq2':  'ACTGACTA',
+       'qual2': '34I&SDF)'
+      },
+      {'name1': 'read_name2a',
+       ...
+      }
+    ]
+  }
+  e.g.:
+  seq = duplex[order][pair_num]['seq1']
+  """
   stats = {'duplexes':0, 'time':0, 'pairs':0, 'runs':0, 'aligned_pairs':0}
   current_worker_i = 0
   duplex = collections.OrderedDict()
@@ -206,7 +224,12 @@ def process_duplex(duplex, barcode):
   for mate, order in combos:
     family = duplex[order]
     start = time.time()
-    alignment = align_family(family, mate)
+    try:
+      alignment = align_family(family, mate)
+    except AssertionError:
+      sys.stderr.write('AssertionError on family {}, order {}, mate {}.\n'
+                       .format(barcode, order, mate))
+      raise
     # Compile statistics.
     elapsed = time.time() - start
     pairs = len(family)
@@ -231,7 +254,9 @@ def align_family(family, mate):
   if seq_alignment is None:
     return None
   # Transfer the alignment to the quality scores.
+  ## Get a list of all sequences in the alignment (mafft output).
   seqs = [read['seq'] for read in seq_alignment]
+  ## Get a list of all quality scores in the family for this mate.
   quals_raw = [pair['qual'+mate] for pair in family]
   qual_alignment = seqtools.transfer_gaps_multi(quals_raw, seqs, gap_char_out=' ')
   # Package them up in the output data structure.
