@@ -149,9 +149,9 @@ def main(argv):
   for i in range(len(workers)):
     worker_i = (start + i) % args.processes
     worker = workers[worker_i]
-    output, run_stats = worker.recv()
+    output, run_stats = worker['parent_pipe'].recv()
     process_results(output, run_stats, stats)
-    worker.send(None)
+    worker['parent_pipe'].send(None)
 
   if infile is not sys.stdin:
     infile.close()
@@ -178,11 +178,17 @@ def open_workers(num_workers):
   """Open the required number of worker processes."""
   workers = []
   for i in range(num_workers):
-    parent_pipe, child_pipe = multiprocessing.Pipe()
-    process = multiprocessing.Process(target=worker_function, args=(child_pipe,))
-    process.start()
-    workers.append(parent_pipe)
+    worker = open_worker()
+    workers.append(worker)
   return workers
+
+
+def open_worker():
+  parent_pipe, child_pipe = multiprocessing.Pipe()
+  process = multiprocessing.Process(target=worker_function, args=(child_pipe,))
+  process.start()
+  worker = {'process':process, 'parent_pipe':parent_pipe, 'child_pipe':child_pipe}
+  return worker
 
 
 def worker_function(child_pipe):
@@ -190,19 +196,30 @@ def worker_function(child_pipe):
     args = child_pipe.recv()
     if args is None:
       break
-    child_pipe.send(process_duplex(*args))
+    try:
+      child_pipe.send(process_duplex(*args))
+    except Exception:
+      child_pipe.send((None, None))
+      raise
 
 
 def delegate(workers, stats, duplex, barcode):
   worker_i = stats['duplexes'] % len(workers)
   worker = workers[worker_i]
+  # Receive results from the last duplex the worker processed, if any.
   if stats['duplexes'] >= len(workers):
-    output, run_stats = worker.recv()
+    output, run_stats = worker['parent_pipe'].recv()
   else:
     output, run_stats = '', {}
+  if output is None and run_stats is None:
+    sys.stderr.write('Worker {} died.\n'.format(worker['process'].name))
+    worker = open_worker()
+    workers[worker_i] = worker
+    output, run_stats = '', {}
   stats['duplexes'] += 1
+  # Send in a new duplex to the worker.
   args = (duplex, barcode)
-  worker.send(args)
+  worker['parent_pipe'].send(args)
   return output, run_stats, worker_i
 
 
